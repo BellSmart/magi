@@ -410,6 +410,10 @@ function openModal(title, rows) {
 
 function openAgentModal(agent) {
   const answer = state.answers[agent];
+  const refs = (answer && answer.sources) || [];
+  const refText = refs.length
+    ? refs.map((s, i) => `[${i + 1}] ${s.title || s.url}`).join('\n')
+    : '—';
   openModal(agent.toUpperCase(), [
     ['質問', state.question || '—'],
     ['状態', answer ? (LABEL[answer.status] || answer.status) : '待 機'],
@@ -418,6 +422,7 @@ function openAgentModal(agent) {
     ['回答', answer && answer.answer ? answer.answer : '—'],
     ['条件', answer && answer.conditions ? answer.conditions : '—'],
     ['誤差', answer && answer.error ? answer.error : '—'],
+    ['参照', refText],
   ]);
 }
 

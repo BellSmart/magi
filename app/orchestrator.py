@@ -16,7 +16,7 @@ from typing import Any
 from sqlalchemy import select
 
 from app.agents.aggregator import REASON_TEXT, aggregate
-from app.agents.classifier import VOTABLE_FORMS, classify_form
+from app.agents.classifier import VOTABLE_FORMS, classify_form, rewrite_search_query
 from app.agents.config import AgentConfig, get_agents_config, model_catalog
 from app.agents.runner import AgentOutcome, run_agent
 from app.db import session_scope
@@ -76,11 +76,12 @@ def _persist_search(
     results: list,  # noqa: ANN001
     latency_ms: int,
     credits: float,
+    scope: str = "shared",
 ) -> None:
     with session_scope() as db:
         call = SearchCall(
             question_id=question_id,
-            scope="shared",
+            scope=scope,
             query=query,
             provider="tavily",
             hit_count=len(results),
@@ -160,6 +161,53 @@ async def _shared_search(
     }
 
 
+async def _agent_search(
+    cfg, question_id: str, text: str, agent  # noqa: ANN001
+) -> tuple[str, list[dict[str, Any]]]:
+    """该人格自己的检索。
+
+    分歧如果只来自"对同一份材料的权重不同"，那是推理风格的差异；
+    让三台拿到的材料本身就有偏向，才会出现"你们看的根本不是同一批证据"。
+
+    查询不是把关键词糊在命题后面，而是先按该人格的角度改写成一个短查询：
+    直接拼接关键词会让检索抓住关键词而不是议题，召回大量离题结果。
+    """
+    provider = _get_search_provider(cfg)
+    if provider is None or not agent.search_angle:
+        return "", []
+
+    query = await rewrite_search_query(cfg, agent, text)
+
+    started = time.perf_counter()
+    try:
+        results = await asyncio.wait_for(
+            provider.search(
+                query,
+                max_results=cfg.search.per_agent_max_results,
+                include_domains=agent.search_domains or None,
+            ),
+            timeout=SEARCH_TIMEOUT_SECONDS,
+        )
+    except (asyncio.TimeoutError, SearchError) as exc:
+        logger.warning("%s 的检索失败：%s", agent.id, exc)
+        return query, []
+
+    latency = int((time.perf_counter() - started) * 1000)
+    _persist_search(
+        question_id, query, results, latency,
+        getattr(provider, "last_credits", 0.0), scope=agent.id,
+    )
+    return query, [
+        {
+            "title": item.title,
+            "url": item.url,
+            "snippet": item.snippet,
+            "published_at": item.published_at,
+        }
+        for item in results
+    ]
+
+
 def _persist_outcome(question_id: str, outcome: AgentOutcome) -> None:
     with session_scope() as db:
         db.add(
@@ -185,7 +233,9 @@ def _persist_outcome(question_id: str, outcome: AgentOutcome) -> None:
         )
 
 
-def _vote_payload(outcome: AgentOutcome) -> dict[str, Any]:
+def _vote_payload(
+    outcome: AgentOutcome, sources: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     return {
         "agent": outcome.agent_id,
         "display": outcome.display,
@@ -195,6 +245,11 @@ def _vote_payload(outcome: AgentOutcome) -> dict[str, Any]:
         "error": outcome.error,
         "latency_ms": outcome.latency_ms,
         "model": outcome.model,
+        # 该台实际依据的来源（可能是它自己的偏置检索结果）
+        "sources": [
+            {"title": item.get("title"), "url": item.get("url")}
+            for item in (sources or [])[:8]
+        ],
     }
 
 
@@ -278,9 +333,35 @@ async def run_question(question_id: str) -> None:
         question_row.is_yes_no = votable
     emit(question_id, "question.classified", {"form": form, "is_yes_no": votable})
 
-    # 共享检索：三台看到同一份事实基础，投票的差异才归因于人格而非"搜到了不同网页"。
+    # 共享检索：给三台一个共同的事实基线。
     sources, search_event = await _shared_search(cfg, question_id, text)
     emit(question_id, "search.shared", search_event)
+
+    # 各自检索：在基线上再按人格偏置各搜一次，让三台拿到的材料也不完全相同。
+    # 失败或为空时回落到共享结果，不会因此让某台失去依据。
+    agent_sources: dict[str, list[dict[str, Any]]] = {}
+    if cfg.search.enabled and any(agent.search_angle for agent in agents):
+        per_agent = await asyncio.gather(
+            *(_agent_search(cfg, question_id, text, agent) for agent in agents),
+            return_exceptions=True,
+        )
+        for agent, result in zip(agents, per_agent):
+            if isinstance(result, Exception) or not result:
+                continue
+            query, found = result
+            if not found:
+                continue
+            agent_sources[agent.id] = found
+            emit(
+                question_id,
+                "search.agent",
+                {
+                    "agent": agent.id,
+                    "query": query,
+                    "count": len(found),
+                    "results": [{"title": r["title"], "url": r["url"]} for r in found],
+                },
+            )
 
     tasks = [
         asyncio.create_task(
@@ -289,7 +370,7 @@ async def run_question(question_id: str) -> None:
                 agent=agent,
                 question=text,
                 form=form,
-                sources=sources or None,
+                sources=agent_sources.get(agent.id) or sources or None,
                 max_tokens=max_tokens,
                 reasoning_effort=reasoning_effort,
             )
@@ -303,7 +384,13 @@ async def run_question(question_id: str) -> None:
             outcome = await completed
             outcomes[outcome.agent_id] = outcome
             _persist_outcome(question_id, outcome)
-            emit(question_id, "agent.vote", _vote_payload(outcome))
+            emit(
+                question_id,
+                "agent.vote",
+                _vote_payload(
+                    outcome, agent_sources.get(outcome.agent_id) or sources
+                ),
+            )
     finally:
         for task in tasks:
             if not task.done():

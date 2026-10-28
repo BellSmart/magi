@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 
 from app.agents.config import AgentsConfig
@@ -97,6 +98,68 @@ FALLBACK_PROMPT = (
     '"conditional". Answer with one word only. If (and only if) that is not possible, '
     "list the conditions under which the answer would be yes."
 )
+
+REWRITE_PROMPT = """
+Turn the user's proposition into ONE short web search query.
+
+Angle for this council member: {angle}
+
+Rules:
+- At most 20 words (or 12 Chinese characters).
+- Keep the original topic. Change only the angle.
+- Write it in the same language as the user's input.
+- Output the query only: no quotes, no explanation, no preamble.
+""".strip()
+
+
+def parse_rewritten_query(text: str | None, fallback: str) -> str:
+    """把模型返回的查询清洗成一行；不合格就用原文兜底。"""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return fallback
+    first = cleaned.splitlines()[0].strip()
+    first = first.strip("\"'`“”‘’《》 ").strip()
+    first = re.sub(r"^(?:query|search)\s*[:：]\s*", "", first, flags=re.IGNORECASE)
+    if len(first) < 2:
+        return fallback
+    return first[:120]
+
+
+async def rewrite_search_query(
+    cfg: AgentsConfig, agent, question: str  # noqa: ANN001
+) -> str:
+    """按该人格的角度，把命题改写成一句短查询。
+
+    直接拼接关键词会让 Tavily 抓住关键词而不是议题——实测三台换来了
+    "结果完全不重叠"却大量离题。这里用一次很便宜的调用先把角度翻译成查询。
+    """
+    fallback = " ".join(question.split())[:80]
+    provider = cfg.provider(cfg.classifier.provider)
+    extra = {"thinking": {"type": "disabled"}} if provider.thinking_switch else None
+
+    try:
+        completion = await asyncio.wait_for(
+            chat(
+                provider,
+                model=cfg.classifier.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": REWRITE_PROMPT.format(angle=agent.search_angle),
+                    },
+                    {"role": "user", "content": question[:1500]},
+                ],
+                temperature=0.0,
+                max_tokens=64,
+                extra=extra,
+                meta={"role": "rewrite_query", "agent": agent.id},
+            ),
+            timeout=20,
+        )
+    except Exception:  # noqa: BLE001 - 改写失败不该拖垮检索
+        return fallback
+
+    return parse_rewritten_query(completion.content, fallback)
 
 
 async def classify_answer(

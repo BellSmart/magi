@@ -38,12 +38,19 @@ class TavilySearch:
         return "tavily"
 
     @staticmethod
-    def _cache_key(query: str, max_results: int, depth: str) -> str:
-        raw = f"{query.strip().lower()}|{max_results}|{depth}"
+    def _cache_key(query: str, max_results: int, depth: str, domains: list[str]) -> str:
+        raw = f"{query.strip().lower()}|{max_results}|{depth}|{','.join(sorted(domains))}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
-    async def search(self, query: str, *, max_results: int) -> list[SearchResult]:
-        key = self._cache_key(query, max_results, self._depth)
+    async def search(
+        self,
+        query: str,
+        *,
+        max_results: int,
+        include_domains: list[str] | None = None,
+    ) -> list[SearchResult]:
+        domains = include_domains or []
+        key = self._cache_key(query, max_results, self._depth, domains)
         cached = self._cache.get(key)
         if cached is not None:
             return cached
@@ -56,6 +63,8 @@ class TavilySearch:
             "include_raw_content": False,
             "topic": "general",
         }
+        if domains:
+            payload["include_domains"] = domains
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",

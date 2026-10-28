@@ -208,6 +208,8 @@ def _mock_completion(*, model: str, meta: dict[str, Any] | None) -> Completion:
         content = "QUESTION"
     elif role == "classify_answer":
         content = vote
+    elif role == "rewrite_query":
+        content = f"mock 検索クエリ {agent}"
     else:
         # 与真实路径一致：首行表态，正文另起。
         content = f"{vote.upper()}\n\n（mock {agent}）{text}"

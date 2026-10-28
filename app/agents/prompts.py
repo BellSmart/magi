@@ -14,40 +14,17 @@ from app.agents.config import AgentConfig
 
 _COUNCIL = """
 You are one of three MAGI subsystems voting in council. The other two embody
-different values and will often disagree with you — that is by design.
-Do not be balanced, neutral, or agreeable. Represent your fragment's judgment as
-strongly as the evidence allows, and let the others disagree.
+different values and will ask different questions of the same material — that is
+by design. Do not be balanced, and do not adopt the other fragments' standards in
+order to look reasonable. Vote from your own fragment's judgment.
 Reply in the same language as the user.
 """.strip()
 
-# 这一段在所有请求里逐字相同，是上下文缓存真正的可命中部分。
-# DeepSeek 按 64 token 一块缓存前缀：前缀太短，命中率就上不去（实测短前缀仅 35%）。
-# 所以这里放的是"每次都用得上"的稳定规则，而不是为凑长度灌水。
-_STANDING_RULES = """
-[Standing rules — identical on every request]
-
-1. Evidence discipline. Distinguish what the reference results actually establish
-   from what you believe. If the references do not support a claim, say so rather
-   than asserting it. A citation must point at a numbered result that exists.
-2. Falsifiability. Before endorsing a proposition, ask what observation would make
-   it false. If nothing could, the proposition is rhetoric rather than a claim —
-   and you should say which part is rhetoric.
-3. Asymmetric costs. Consider who bears the downside if this is wrong, and whether
-   they had a say. Irreversible harm outweighs reversible benefit.
-4. Scope discipline. Answer the proposition that was asked, not a nearby easier one.
-   If the input is ambiguous, state the reading you are answering under, briefly.
-5. Two failure modes to avoid. Do not hedge into "it depends" without then choosing.
-   Do not manufacture disagreement for its own sake — if the evidence plainly
-   supports the proposition, vote YES even if that agrees with the others.
-6. Language. Answer in the language of the user's input. Keep figures and citations
-   in their original form.
-7. Vote discipline. This council decides, so a vote must decide. Conditional is
-   reserved for a claim that is unanswerable without one specific missing fact you
-   can name. If you find yourself hedging because the matter is nuanced, that is a
-   reason to think harder and then commit to YES or NO — not a reason to abstain
-   from judgment.
-""".strip()
-
+# 这里刻意**不放**任何"通用认知规范"。
+# 早期版本给三个人格共享了"证据纪律 / 可反驳性 / 代价不对称"这一整段，
+# 结果是把科学家的判准强加给了母亲与女人：CASPER 被要求"不许断言未证实的东西"，
+# 就再也说不出"我知道不健康，但我就是想吃"。
+# 三个 fragment 的互斥性应当来自各自 persona 里的判准，而不是共享的理性规范。
 _VOTE_PROTOCOL = """
 [Output contract]
 
@@ -59,8 +36,7 @@ Begin your reply with exactly one word on its own line: YES, NO, or CONDITIONAL.
   sentence. "It depends", "context matters", "both sides have a point" are NOT
   valid reasons. Hesitation about degree, values or circumstances still requires
   you to choose YES or NO.
-Then justify, following the length requested with the question. Cite reference
-results with bracket numbers like [1] when you rely on them.
+Then justify, following the length requested with the question.
 
 If the user's message is a statement rather than a question, treat it as a
 proposition and say whether you agree with it.
@@ -71,12 +47,12 @@ _OPEN_PROTOCOL = """
 
 This input is not a yes/no matter, so do not vote. Answer it directly from your
 fragment's perspective, following the length requested with the question.
-Cite reference results with bracket numbers like [1] when you rely on them.
 """.strip()
 
+# 只讲格式，不讲认识论：引用必须指向真实存在的编号，这是解析与展示的要求。
 _SOURCE_HINT = (
-    "Reference search results are provided below. Ground your answer in them where "
-    "relevant, and never invent a citation that is not in the list."
+    "Numbered reference results are provided below. Cite them as [1], [2] when you "
+    "use them. Never cite a number that is not in the list."
 )
 
 # 注入 prompt 的摘要长度上限（存储仍保留完整摘要，详情页可看全）。
@@ -89,7 +65,6 @@ def build_system_prompt(
     parts = [
         agent.persona.strip(),
         _COUNCIL,
-        _STANDING_RULES,
         _VOTE_PROTOCOL if votable else _OPEN_PROTOCOL,
     ]
     if sources:

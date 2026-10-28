@@ -62,6 +62,11 @@ class AgentConfig(BaseModel):
     tools: list[str] = Field(default_factory=list)
     extra_searches: int = 0
     reasoning_effort: str | None = None
+    # 检索角度：用它把命题改写成该人格自己的短查询，再检索。
+    # 直接拼关键词会把一整句命题变成关键词汤，召回的往往离题。
+    search_angle: str = ""
+    # 可选：限定来源域名（留空不限制）。
+    search_domains: list[str] = Field(default_factory=list)
 
 
 class ModelOption(BaseModel):
