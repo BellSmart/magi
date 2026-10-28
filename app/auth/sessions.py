@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
@@ -22,7 +22,7 @@ _TOUCH_INTERVAL = timedelta(seconds=60)
 
 def _aware(value: datetime) -> datetime:
     """SQLite 取回的 datetime 不带 tzinfo，统一补成 UTC 再比较。"""
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
 def hash_token(token: str) -> str:

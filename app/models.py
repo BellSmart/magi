@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
@@ -27,7 +27,9 @@ from app.db import Base
 
 
 def utcnow() -> datetime:
-    return datetime.now(UTC)
+    # 用 timezone.utc 而不是 datetime.UTC：后者是 3.11 才有的，
+    # 而 Ubuntu 22.04 自带的是 Python 3.10。
+    return datetime.now(timezone.utc)
 
 
 def new_id() -> str:

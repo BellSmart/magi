@@ -20,27 +20,27 @@ die() { printf '\033[1;31m!! %s\033[0m\n' "$*" >&2; exit 1; }
 [ -n "$IP" ] || die "用法：sudo bash deploy/enable-tls.sh <公网IP> <邮箱>"
 [ -n "$EMAIL" ] || die "需要邮箱（Let's Encrypt 的到期通知）"
 
-say "安装 certbot"
-# Ubuntu 软件源自带的 certbot 版本太旧，不支持 --ip-address / --preferred-profile。
-if ! command -v snap >/dev/null 2>&1; then
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq snapd
-    systemctl enable --now snapd.socket >/dev/null 2>&1 || true
-fi
-snap install --classic certbot >/dev/null 2>&1 || snap refresh certbot >/dev/null 2>&1 || true
-
-CERTBOT=/snap/bin/certbot
-[ -x "$CERTBOT" ] || CERTBOT="$(command -v certbot || true)"
-[ -n "$CERTBOT" ] || die "certbot 安装失败"
-
-VERSION="$("$CERTBOT" --version 2>/dev/null | head -n1 || true)"
-echo "certbot: $VERSION"
-NUMVER="$(printf '%s' "$VERSION" | awk '{print $2}')"
-if [ -n "$NUMVER" ]; then
-    # 低于 5.4 没有 --ip-address / --preferred-profile
-    OLDEST="$(printf '%s\n%s\n' "5.4" "$NUMVER" | sort -V | head -n1)"
-    if [ "$OLDEST" != "5.4" ]; then
-        echo "警告：certbot $NUMVER 低于 5.4，IP 证书功能不可用"
+say "准备 certbot"
+# 优先复用已装好的 certbot（>=5.4 才支持 --ip-address / --preferred-profile）。
+# snap 在国内经常卡在下载，所以只在确实没有可用版本时才走 snap。
+CERTBOT="$(command -v certbot || true)"
+USABLE=0
+if [ -n "$CERTBOT" ]; then
+    NUMVER="$(printf '%s' "$("$CERTBOT" --version 2>/dev/null | head -n1)" | awk '{print $2}')"
+    if [ -n "$NUMVER" ] && [ "$(printf '5.4\n%s\n' "$NUMVER" | sort -V | head -n1)" = "5.4" ]; then
+        USABLE=1
+        echo "复用已有 certbot $NUMVER（$CERTBOT）"
     fi
+fi
+
+if [ "$USABLE" -eq 0 ]; then
+    echo "未找到 >=5.4 的 certbot，改用 pip 安装（比 snap 在国内稳定得多）"
+    python3 -m venv /opt/certbot-venv
+    /opt/certbot-venv/bin/pip install -q --timeout 60 --retries 5 \
+        ${PIP_INDEX_URL:+-i "$PIP_INDEX_URL"} certbot
+    ln -sf /opt/certbot-venv/bin/certbot /usr/local/bin/certbot
+    CERTBOT=/usr/local/bin/certbot
+    echo "已安装：$("$CERTBOT" --version)"
 fi
 
 say "确认 80 端口可用（校验需要）"

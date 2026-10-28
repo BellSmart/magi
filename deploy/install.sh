@@ -43,8 +43,18 @@ chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_DIR"
 
 say "Python 虚拟环境"
 [ -x "$APP_DIR/.venv/bin/python" ] || python3 -m venv "$APP_DIR/.venv"
-"$APP_DIR/.venv/bin/pip" install --quiet --upgrade pip
-"$APP_DIR/.venv/bin/pip" install --quiet -e "$APP_DIR"
+
+# 国内机器直连 files.pythonhosted.org 经常超时，允许用 PIP_INDEX_URL 指定镜像：
+#   PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ bash deploy/install.sh
+PIP_OPTS="--quiet --timeout 60 --retries 5"
+if [ -n "${PIP_INDEX_URL:-}" ]; then
+    PIP_OPTS="$PIP_OPTS -i $PIP_INDEX_URL"
+    echo "使用 PyPI 镜像：$PIP_INDEX_URL"
+fi
+# shellcheck disable=SC2086
+"$APP_DIR/.venv/bin/pip" install $PIP_OPTS --upgrade pip
+# shellcheck disable=SC2086
+"$APP_DIR/.venv/bin/pip" install $PIP_OPTS -e "$APP_DIR"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_DIR/.venv"
 
 say "环境变量文件"
