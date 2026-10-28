@@ -4,8 +4,10 @@
 
 providers:
   deepseek:
+    label: DeepSeek
     base_url: https://api.deepseek.com/v1
-    api_key: ${ENV:DEEPSEEK_API_KEY}
+    # 服务端不存密钥：这个值留空，用户各自在设置页填。
+    api_key: ""
     timeout_s: 90
     # DeepSeek 默认开思考，思维链也算 max_tokens，短任务必须关掉。
     thinking_switch: true
@@ -16,18 +18,20 @@ providers:
     price_in_cache_yuan_per_mtok: 0.04
 
   kimi:
+    label: Kimi
     # 中国大陆：https://api.moonshot.cn/v1
     base_url: https://api.moonshot.ai/v1
-    api_key: ${ENV:MOONSHOT_API_KEY}
+    api_key: ""
     timeout_s: 90
     # highspeed 变体同能力、约 2-3 倍速。
     price_in_yuan_per_mtok: 0.0  # TODO 按控制台计价填写，未填则成本统计记 0
     price_out_yuan_per_mtok: 0.0
 
   qwen:
+    label: 千問
     # 业务空间专属域名形如 https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-    api_key: ${ENV:DASHSCOPE_API_KEY}
+    api_key: ""
     timeout_s: 60
     price_in_yuan_per_mtok: 0.0  # TODO
     price_out_yuan_per_mtok: 0.0
@@ -50,7 +54,8 @@ voting:
 search:
   # deepseek 用自研搜索（共用模型 key，5 元/1000 次）；tavily 仍保留，改这行切回。
   provider: deepseek
-  api_key: ${ENV:DEEPSEEK_API_KEY}
+  # 搜索用同一个用户 key（DeepSeek Search 与模型接口共用鉴权）
+  api_key: ""
   endpoint: https://api.deepseek.com/v1/tools/search
   timeout_s: 20
   # 共享基线跑几路（事实 + 反方），每个人格再各跑几路

@@ -102,8 +102,7 @@ class LoginAttempt(Base):
 class UserAgentSetting(Base):
     """每个用户对每个人格单独选择的 provider/model。
 
-    只存"选择"，不存密钥：密钥仍由运营方在服务端配置，用户只能在
-    config/agents.yaml 的 models 白名单里挑，避免任意 base_url 与费用失控。
+    只存"选择"。用户在 config/agents.yaml 的白名单里挑，避免任意 base_url。
     """
 
     __tablename__ = "user_agent_settings"
@@ -121,6 +120,35 @@ class UserAgentSetting(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "agent_id", name="uq_user_agent_setting"),
+    )
+
+
+class UserCredential(Base):
+    """用户自己的厂商 API key，加密后存库。
+
+    服务端不保存任何厂商密钥：key 由用户填、按用户存，调用时解出来
+    拼进一份临时配置。换 MAGI_SECRET_KEY 会让旧密文失效，等同于没配。
+    """
+
+    __tablename__ = "user_credentials"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    provider: Mapped[str] = mapped_column(String(32))
+    ciphertext: Mapped[str] = mapped_column(Text)
+    # 界面上只回显这个，让人知道"填过了"
+    hint: Mapped[str] = mapped_column(String(24), default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "provider", name="uq_credential_user_provider"),
     )
 
 

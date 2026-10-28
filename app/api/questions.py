@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 from app import orchestrator
 from app.agents.answer import normalise_effort, resolve_max_tokens
 from app.config import get_settings
+from app.agents.config import get_agents_config
+from app.credentials import user_credentials
 from app.db import get_db, session_scope
 from app.models import AgentRun, Question, QuestionEvent, SearchCall, User, utcnow
 
@@ -129,6 +131,18 @@ async def ask(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "busy", "message": "上一问还在处理中"},
         )
+
+    # 服务端不持有厂商密钥：一个都没配就直接拒绝，别让它跑到 agent 里才报错。
+    config = get_agents_config()
+    if not any(p.is_mock for p in config.providers.values()):
+        if not user_credentials(db, user.id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "missing_credentials",
+                    "message": "先に「設 定」で API キーを登録してください",
+                },
+            )
 
     # 账户级默认值优先，请求可临时覆盖。
     requested_tokens = (

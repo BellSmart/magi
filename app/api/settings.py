@@ -1,7 +1,7 @@
-"""每个用户对每个人格的模型选择。
+"""每个用户对每个人格的模型选择，以及各自的 API key。
 
-只存"选择"，不存密钥。可选范围来自 config/agents.yaml 的 models 白名单，
-并且要求对应 provider 已经配好 key——否则用户会选到一个必然报错的组合。
+服务端不持有任何厂商密钥：key 由用户在设置页填、按用户加密存库。
+可选模型只列出"这个用户自己有 key"的 provider，避免选到必然报错的组合。
 """
 
 from __future__ import annotations
@@ -24,6 +24,12 @@ from app.agents.answer import (
     resolve_max_tokens,
 )
 from app.config import get_settings
+from app.credentials import (
+    credential_rows,
+    delete_credential,
+    set_credential,
+    user_credentials,
+)
 from app.db import get_db
 from app.models import User, UserAgentSetting
 
@@ -48,14 +54,15 @@ class VotingPayload(BaseModel):
     policy: str
 
 
-def _catalog_with_availability():  # noqa: ANN202
-    config = get_agents_config()
-    return config, [
+def _catalog_with_availability(config, creds: dict[str, str]):  # noqa: ANN001, ANN202
+    """可选模型 = 用户自己配了 key 的 provider。"""
+    return [
         {
             "provider": option.provider,
             "model": option.model,
             "label": option.label or option.model,
-            "available": config.provider(option.provider).is_configured,
+            "available": config.provider(option.provider).is_mock
+            or option.provider in creds,
         }
         for option in model_catalog(config)
         if option.provider in config.providers
@@ -72,7 +79,8 @@ def _overrides(db: Session, user_id: int) -> dict[str, UserAgentSetting]:
 @router.get("/agents")
 def get_agent_settings(request: Request, db: Session = Depends(get_db)) -> dict:
     user = cast(User, request.state.user)
-    config, options = _catalog_with_availability()
+    config = get_agents_config()
+    options = _catalog_with_availability(config, user_credentials(db, user.id))
     overrides = _overrides(db, user.id)
 
     agents = []
@@ -100,7 +108,8 @@ def put_agent_settings(
     db: Session = Depends(get_db),
 ) -> dict:
     user = cast(User, request.state.user)
-    config, options = _catalog_with_availability()
+    config = get_agents_config()
+    options = _catalog_with_availability(config, user_credentials(db, user.id))
     allowed = {
         (option["provider"], option["model"]) for option in options if option["available"]
     }
@@ -231,3 +240,63 @@ def put_voting_settings(
     row.vote_policy = payload.policy
     db.commit()
     return _voting_payload(row)
+
+# --- 用户自己的 API key ------------------------------------------------------
+
+class CredentialPayload(BaseModel):
+    provider: str = Field(min_length=1, max_length=32)
+    api_key: str = Field(min_length=8, max_length=256)
+
+
+def _provider_payload(db: Session, user: User) -> dict:
+    config = get_agents_config()
+    creds = user_credentials(db, user.id)
+    rows = {row.provider: row for row in credential_rows(db, user.id)}
+    providers = []
+    for name, provider in config.providers.items():
+        row = rows.get(name)
+        providers.append(
+            {
+                "name": name,
+                "label": provider.label or name,
+                "configured": name in creds,
+                "hint": row.hint if row else "",
+                "is_default": name == config.classifier.provider,
+            }
+        )
+    return {"providers": providers}
+
+
+@router.get("/providers")
+def get_providers(request: Request, db: Session = Depends(get_db)) -> dict:
+    return _provider_payload(db, cast(User, request.state.user))
+
+
+@router.put("/providers")
+def put_provider(
+    payload: CredentialPayload, request: Request, db: Session = Depends(get_db)
+) -> dict:
+    user = cast(User, request.state.user)
+    config = get_agents_config()
+    if payload.provider not in config.providers:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "unknown_provider", "message": "未知的服务商"},
+        )
+    api_key = payload.api_key.strip()
+    if len(api_key) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "invalid_key", "message": "API キーが短すぎます"},
+        )
+    set_credential(db, user.id, payload.provider, api_key)
+    return _provider_payload(db, user)
+
+
+@router.delete("/providers/{provider}")
+def delete_provider(
+    provider: str, request: Request, db: Session = Depends(get_db)
+) -> dict:
+    user = cast(User, request.state.user)
+    delete_credential(db, user.id, provider)
+    return _provider_payload(db, user)

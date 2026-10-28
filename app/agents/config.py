@@ -31,7 +31,10 @@ def _resolve(value: Any) -> Any:
 
 
 class ProviderConfig(BaseModel):
+    # 界面上给用户看的名字
+    label: str = ""
     base_url: str
+    # 服务端不存厂商密钥；这里通常为空，真正的 key 由每个用户自己填。
     api_key: str = ""
     timeout_s: float = 60.0
     price_in_yuan_per_mtok: float = 0.0
@@ -179,3 +182,30 @@ def get_agents_config() -> AgentsConfig:
 
 def reset_agents_config_cache() -> None:
     get_agents_config.cache_clear()
+
+
+def rebind_classifier(cfg: AgentsConfig) -> AgentsConfig:
+    """把分类器指到一个"当前用户确实有 key"的 provider。
+
+    分类和查询改写是内部开销，不该因为用户只配了 Kimi 就整体失败。
+    """
+    if cfg.provider(cfg.classifier.provider).is_configured:
+        return cfg
+
+    fallback = next(
+        (name for name, p in cfg.providers.items() if p.is_configured), None
+    )
+    if fallback is None:
+        return cfg
+
+    model = next(
+        (m.model for m in cfg.models if m.provider == fallback),
+        cfg.classifier.model,
+    )
+    return cfg.model_copy(
+        update={
+            "classifier": cfg.classifier.model_copy(
+                update={"provider": fallback, "model": model}
+            )
+        }
+    )

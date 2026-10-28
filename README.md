@@ -1,4 +1,4 @@
-﻿# MAGI
+# MAGI
 
 三贤者投票系统：同一问题同时交给三个带不同人格设定的 agent，各自检索、各自作答，
 再按固定规则聚合成一个结论。
@@ -46,11 +46,19 @@ MAGI_AGENTS_CONFIG_PATH=config/agents.mock.yaml uvicorn app.main:app --reload --
 mock provider 不发任何网络请求，三台分别给出 yes / no / yes，可以直接看到
 逐票推送、一票否决和详情弹窗。链路与真实调用完全一致，只是模型换成了假的。
 
-### 接 DeepSeek
+### 接真实的模型
 
-在 `.env` 里填 `DEEPSEEK_API_KEY`，保持默认的 `config/agents.yaml` 即可——
-当前三台都指向 `deepseek-flash`，人格设定各不相同，因此"同一模型 × 三种人格"
-本身就构成一个对照实验。
+这个项目只提供框架：**服务端不保存任何厂商密钥**。每个用户登录后到「設 定」页
+填自己的 API キー（DeepSeek / Kimi / 千問），key 按用户加密存库，
+费用也记在各自的账号上。
+
+```bash
+# 管理员建号后，用户自己配置：
+#   登录 → 設定 → A P I キ ー → 粘贴 key → 保存
+#   再在「人 格 モ デ ル」里挑一个该服务商的模型
+```
+
+换服务商只要改 `config/agents.yaml` 的 `base_url`，不需要动代码。
 
 ## 账号管理
 
@@ -86,7 +94,7 @@ pytest
 
 - 环境变量见 [`.env.example`](.env.example)，全部以 `MAGI_` 前缀。
 - 三个 agent 的模型、人格、检索预算见 [`config/agents.yaml`](config/agents.yaml)。
-- 换模型只改 YAML，不动代码；密钥只从环境变量读，不写进仓库。
+- 换模型只改 YAML，不动代码；厂商密钥由用户自己填，按用户加密存库。
 
 ## 目录
 

@@ -103,7 +103,7 @@ cat <<'EOF'
 ────────────────────────────────────────────────────────
 安装完成。接下来三步：
 
-1) 填入 API key（DeepSeek 必需，Tavily 用于检索）
+1) （已不需要）服务端不再持有厂商密钥，用户各自在「設 定」页填写
      sudo nano /etc/magi/magi.env
      sudo systemctl restart magi
    应用启动时会检查并警告缺失的 key：
@@ -123,5 +123,5 @@ cat <<'EOF'
 EOF
 
 if [ "${NEED_KEYS:-0}" -eq 1 ]; then
-    printf '\033[1;33m提示：%s 是刚生成的，密钥已填好，但 API key 仍是占位符。\033[0m\n' "$ETC_DIR/magi.env"
+    printf '\033[1;33m提示：%s 是刚生成的；厂商 API キー由各用户自己在页面上填写。\033[0m\n' "$ETC_DIR/magi.env"
 fi

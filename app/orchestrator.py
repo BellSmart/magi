@@ -15,7 +15,13 @@ from sqlalchemy import select
 
 from app.agents.aggregator import REASON_TEXT, aggregate
 from app.agents.classifier import VOTABLE_FORMS, classify_form, rewrite_queries
-from app.agents.config import AgentConfig, get_agents_config, model_catalog
+from app.agents.config import (
+    AgentConfig,
+    get_agents_config,
+    model_catalog,
+    rebind_classifier,
+)
+from app.credentials import apply_credentials, user_credentials
 from app.agents.runner import AgentOutcome, run_agent
 from app.db import session_scope
 from app.models import (
@@ -364,7 +370,7 @@ def spawn(question_id: str) -> None:
 
 async def run_question(question_id: str) -> None:
     started = time.perf_counter()
-    cfg = get_agents_config()
+    base_cfg = get_agents_config()
 
     with session_scope() as db:
         question = db.get(Question, question_id)
@@ -373,11 +379,14 @@ async def run_question(question_id: str) -> None:
             return
         text = question.text
         user_id = question.user_id
+        creds = user_credentials(db, user_id)
         max_tokens = question.max_tokens
         reasoning_effort = question.reasoning_effort
         owner = db.get(User, user_id)
-        vote_policy = (owner.vote_policy if owner else None) or cfg.voting.default_policy
+        vote_policy = (owner.vote_policy if owner else None) or base_cfg.voting.default_policy
 
+    # 服务端不存厂商密钥：把该用户自己的 key 拼进配置再往下走。
+    cfg = rebind_classifier(apply_credentials(base_cfg, creds))
     agents = _effective_agents(cfg, user_id)
 
     emit(question_id, "question.started", {"text": text})

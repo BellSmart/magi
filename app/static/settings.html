@@ -59,6 +59,16 @@
     button.secondary { border-color: #4a3a24; color: #8a7350; }
     button.secondary:hover:not(:disabled) { background: #2a1a08; color: #c8b28a; }
 
+    .key-cell { display: flex; flex-direction: column; gap: 8px; }
+    .key-input {
+      width: 100%; padding: 8px; background: #120a03; color: #c8b28a;
+      border: 1px solid #3a2410; font-family: inherit; font-size: 13px;
+      letter-spacing: .02em;
+    }
+    .key-input:focus { outline: none; border-color: #ff8d00; }
+    .key-actions { display: flex; gap: 8px; }
+    .key-actions button { padding: 6px 16px; }
+
     .msg { margin-top: 10px; font-size: 12px; min-height: 16px; color: #52e691; }
     .msg.err { color: #a41413; }
 
@@ -84,11 +94,19 @@
 </header>
 
 <main>
+  <h2>A P I キ ー</h2>
+  <p class="hint">
+    このサービスはフレームワークのみを提供します。利用するモデルの API キーは
+    ご自身で登録してください。キーはアカウントごとに暗号化して保存され、
+    他の利用者からは見えません。料金もご自身のアカウントに発生します。
+  </p>
+  <div id="providers"></div>
+  <div class="msg" id="msg-providers" role="status"></div>
+
   <h2>人 格 モ デ ル</h2>
   <p class="hint">
     各人格が接続するモデルを個別に選択できます。この設定はあなたのアカウントにのみ適用され、
-    他の利用者には影響しません。指定できるのは運用側が用意したモデルのみです
-    （API キーは利用者ごとには扱いません）。
+    他の利用者には影響しません。API キーを登録したサービス商のモデルだけが選べます。
   </p>
   <div id="agents"></div>
   <div class="actions">
@@ -161,6 +179,115 @@ function setMsg(id, text, isError) {
   const node = document.getElementById(id);
   node.textContent = text || '';
   node.classList.toggle('err', Boolean(isError));
+}
+
+// --- API キー --------------------------------------------------------------
+
+function buildProviderRow(provider) {
+  const row = document.createElement('div');
+  row.className = 'row';
+
+  const left = document.createElement('div');
+  const name = document.createElement('div');
+  name.className = 'name';
+  name.textContent = provider.label;
+  const sub = document.createElement('div');
+  sub.className = 'sub';
+  sub.textContent = provider.configured
+    ? `登録済み ${provider.hint}`
+    : '未登録';
+  left.append(name, sub);
+
+  const right = document.createElement('div');
+  right.className = 'key-cell';
+
+  const input = document.createElement('input');
+  input.type = 'password';
+  input.placeholder = provider.configured ? '新しいキーで上書き' : 'API キーを貼り付け';
+  input.className = 'key-input';
+  input.dataset.provider = provider.name;
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+
+  const actions = document.createElement('div');
+  actions.className = 'key-actions';
+
+  const save = document.createElement('button');
+  save.type = 'button';
+  save.className = 'primary';
+  save.textContent = '保 存';
+  save.addEventListener('click', () => saveKey(provider.name, input, save));
+  actions.append(save);
+
+  if (provider.configured) {
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'secondary';
+    del.textContent = '削 除';
+    del.addEventListener('click', () => deleteKey(provider.name, del));
+    actions.append(del);
+  }
+
+  right.append(input, actions);
+
+  row.append(left, right);
+  return row;
+}
+
+function renderProviders(data) {
+  const host = document.getElementById('providers');
+  host.textContent = '';
+  data.providers.forEach((provider) => host.appendChild(buildProviderRow(provider)));
+}
+
+async function saveKey(name, input, button) {
+  const apiKey = input.value.trim();
+  if (apiKey.length < 8) {
+    setMsg('msg-providers', 'API キーが短すぎます', true);
+    return;
+  }
+  button.disabled = true;
+  setMsg('msg-providers', '');
+  try {
+    const response = await fetch('/api/settings/providers', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      body: JSON.stringify({ provider: name, api_key: apiKey }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      setMsg('msg-providers', (data.error && data.error.message) || '保存に失敗しました', true);
+      return;
+    }
+    renderProviders(await response.json());
+    setMsg('msg-providers', '保存しました。使えるモデルが増えました。');
+    await refreshAgents();
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function deleteKey(name, button) {
+  button.disabled = true;
+  setMsg('msg-providers', '');
+  try {
+    const response = await fetch(`/api/settings/providers/${name}`, {
+      method: 'DELETE',
+      headers: { 'X-CSRF-Token': csrf },
+    });
+    if (response.ok) {
+      renderProviders(await response.json());
+      setMsg('msg-providers', '削除しました。');
+      await refreshAgents();
+    }
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function refreshAgents() {
+  const response = await fetch('/api/settings/agents');
+  if (response.ok) renderAgents(await response.json());
 }
 
 // --- 人格モデル ------------------------------------------------------------
@@ -351,14 +478,16 @@ async function boot() {
   csrf = meData.csrf_token;
   document.getElementById('who').textContent = meData.user.username;
 
-  const [agentsRes, answerRes, votingRes] = await Promise.all([
+  const [agentsRes, answerRes, votingRes, providersRes] = await Promise.all([
     fetch('/api/settings/agents'),
     fetch('/api/settings/answer'),
     fetch('/api/settings/voting'),
+    fetch('/api/settings/providers'),
   ]);
   if (agentsRes.ok) renderAgents(await agentsRes.json());
   if (answerRes.ok) renderAnswer(await answerRes.json());
   if (votingRes.ok) renderVoting(await votingRes.json());
+  if (providersRes.ok) renderProviders(await providersRes.json());
 }
 
 boot();
