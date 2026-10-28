@@ -44,12 +44,23 @@ fi
 [ -f "$SRC/pyproject.toml" ] || die "$SRC 不是 MAGI 源码目录"
 
 # 1. 备份数据库
+#    SQLite 开的是 WAL：直接 cp 只拿到主文件，-wal 里没 checkpoint 的写入会丢。
+#    用 .backup 做一致性快照；没有 sqlite3 时才退回三件套一起复制。
 if [ -f "$DB" ]; then
     mkdir -p "$BACKUP_DIR"
     STAMP="$(date +%Y%m%d-%H%M%S)"
-    cp -a "$DB" "$BACKUP_DIR/magi-$STAMP.db"
-    echo "已备份数据库：$BACKUP_DIR/magi-$STAMP.db"
-    ls -1t "$BACKUP_DIR"/magi-*.db 2>/dev/null | tail -n +11 | xargs -r rm -f
+    DEST="$BACKUP_DIR/magi-$STAMP.db"
+    if command -v sqlite3 >/dev/null 2>&1; then
+        sqlite3 "$DB" ".backup '$DEST'"
+    else
+        echo "警告：没有 sqlite3，退回文件复制（可能丢失未 checkpoint 的写入）"
+        cp -a "$DB" "$DEST"
+        [ -f "$DB-wal" ] && cp -a "$DB-wal" "$DEST-wal"
+        [ -f "$DB-shm" ] && cp -a "$DB-shm" "$DEST-shm"
+    fi
+    echo "已备份数据库：$DEST"
+    # 只清理备份目录里的旧文件；没有匹配时不要让 pipefail 把脚本带走
+    ls -1t "$BACKUP_DIR"/magi-*.db 2>/dev/null | tail -n +11 | xargs -r rm -f || true
     echo "（只保留最近 10 份）"
 fi
 
