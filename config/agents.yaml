@@ -36,6 +36,33 @@ providers:
     price_in_yuan_per_mtok: 0.0  # TODO
     price_out_yuan_per_mtok: 0.0
 
+  # MaaS 聚合：一个 key 就能用 DeepSeek / 千问 / Kimi 等多家开源模型。
+  siliconflow:
+    label: 硅基流动
+    # 国际站为 https://api.siliconflow.com/v1
+    base_url: https://api.siliconflow.cn/v1
+    api_key: ""
+    timeout_s: 90
+    price_in_yuan_per_mtok: 0.0  # TODO 按控制台计价填写
+    price_out_yuan_per_mtok: 0.0
+
+  # 海外聚合：模型 ID 带厂商前缀，形如 anthropic/claude-sonnet-4.5。
+  openrouter:
+    label: OpenRouter
+    base_url: https://openrouter.ai/api/v1
+    api_key: ""
+    timeout_s: 120
+    price_in_yuan_per_mtok: 0.0  # TODO
+    price_out_yuan_per_mtok: 0.0
+
+  zhipu:
+    label: 智谱
+    base_url: https://open.bigmodel.cn/api/paas/v4
+    api_key: ""
+    timeout_s: 90
+    price_in_yuan_per_mtok: 0.0  # TODO
+    price_out_yuan_per_mtok: 0.0
+
 # 共享分类器，用最便宜的模型就够。
 classifier:
   provider: deepseek
@@ -69,7 +96,8 @@ search:
 
 # 用户在「設 定」页能为每个人格挑模型，但只能从这个白名单里选。
 # 限制来源是必要的：任意 base_url 会变成 SSRF 和密钥外泄，费用也控不住。
-# 没有 key 的 provider 在界面上显示为不可选。
+# 接新厂商只改这个文件：providers 加一段、models 加几条，不用动代码。
+# 模型 ID 各家会更新换代，填之前先 curl <base_url>/models 核对。
 models:
   - provider: deepseek
     model: deepseek-flash
@@ -77,13 +105,35 @@ models:
   - provider: deepseek
     model: deepseek-v4-pro
     label: DeepSeek V4 Pro（强、贵）
-  # 这两项在有 key 之前不可选，填好环境变量就自动可选。
+  # 这几项在用户填了对应 key 之后才可选。
   - provider: kimi
     model: kimi-k3.1-pro-highspeed
     label: Kimi K3.1 Pro Highspeed
   - provider: qwen
     model: qwen3.8-max
     label: 千问 3.8 Max
+  # 硅基流动：一个 key 通吃多家开源模型。
+  - provider: siliconflow
+    model: deepseek-ai/DeepSeek-V3.2
+    label: 硅基流动 · DeepSeek V3.2
+  - provider: siliconflow
+    model: Qwen/Qwen3-235B-A22B-Instruct-2507
+    label: 硅基流动 · 千问 3 235B
+  - provider: siliconflow
+    model: moonshotai/Kimi-K2-Instruct
+    label: 硅基流动 · Kimi K2
+  - provider: openrouter
+    model: deepseek/deepseek-chat
+    label: OpenRouter · DeepSeek Chat
+  - provider: openrouter
+    model: qwen/qwen3-235b-a22b
+    label: OpenRouter · 千问 3 235B
+  - provider: zhipu
+    model: glm-4.6
+    label: 智谱 GLM-4.6
+  - provider: zhipu
+    model: glm-4.5-air
+    label: 智谱 GLM-4.5 Air（便宜）
 
 agents:
   # 人格要互斥到"判准"这一层，光改口吻没用。

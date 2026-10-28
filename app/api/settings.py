@@ -59,6 +59,7 @@ def _catalog_with_availability(config, creds: dict[str, str]):  # noqa: ANN001, 
     return [
         {
             "provider": option.provider,
+            "provider_label": config.provider(option.provider).label or option.provider,
             "model": option.model,
             "label": option.label or option.model,
             "available": config.provider(option.provider).is_mock
@@ -252,6 +253,7 @@ def _provider_payload(db: Session, user: User) -> dict:
     config = get_agents_config()
     creds = user_credentials(db, user.id)
     rows = {row.provider: row for row in credential_rows(db, user.id)}
+    catalog = model_catalog(config)
     providers = []
     for name, provider in config.providers.items():
         row = rows.get(name)
@@ -259,6 +261,8 @@ def _provider_payload(db: Session, user: User) -> dict:
             {
                 "name": name,
                 "label": provider.label or name,
+                "base_url": provider.base_url,
+                "models": [m.model for m in catalog if m.provider == name],
                 "configured": name in creds,
                 "hint": row.hint if row else "",
                 "is_default": name == config.classifier.provider,

@@ -59,10 +59,30 @@ sudo bash deploy/install.sh
 ## 3. 让用户填自己的 API key
 
 服务端不保存任何厂商密钥。建好账号后，让每个用户登录 → 点「設 定」→ 在
-「A P I キ ー」里粘贴自己的 DeepSeek / Kimi / 千問 key：key 按用户 AES-GCM
-加密存库，加密密钥由 `MAGI_SECRET_KEY` 经 HKDF 派生，界面上只回显尾部几位。
+「A P I キ ー」的下拉选单里挑服务商（DeepSeek / Kimi / 千問 / 硅基流动 /
+OpenRouter / 智谱）、粘自己的 key 保存，再到「人 格 モ デ ル」里给每台选模型。
+key 按用户 AES-GCM 加密存库，加密密钥由 `MAGI_SECRET_KEY` 经 HKDF 派生，
+界面上只回显尾部几位。没配 key 的服务商，它的模型在下拉里是灰的。
 
 没填 key 就提问会返回 `400 missing_credentials`，这是预期行为，不是部署失败。
+
+要接表里没有的服务商（vLLM、Ollama、自建网关等），改 `config/agents.yaml` 的
+`providers` 与 `models` 两处即可，不用动代码，改完 `systemctl restart magi`：
+
+```yaml
+providers:
+  my_gateway:
+    label: 我的网关
+    base_url: https://llm.example.com/v1
+    api_key: ""            # 留空，key 由用户在设置页填
+models:
+  - provider: my_gateway
+    model: qwen3-32b
+    label: 我的网关 · Qwen3 32B
+```
+
+`base_url` 只认服务端白名单，用户不能自己填地址（否则就是 SSRF + 密钥外送）；
+模型 ID 各家会变，填之前先 `curl <base_url>/models` 核对。
 
 旧版的 `DEEPSEEK_API_KEY` / `TAVILY_API_KEY` 环境变量**已经不再读取**，`/etc/magi/magi.env`
 里留着只为兼容旧部署，可以删。检索默认走 DeepSeek 的 search（共用用户自己的模型 key），

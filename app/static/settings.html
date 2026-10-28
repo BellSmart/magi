@@ -60,6 +60,8 @@
     button.secondary:hover:not(:disabled) { background: #2a1a08; color: #c8b28a; }
 
     .key-cell { display: flex; flex-direction: column; gap: 8px; }
+    /* base_url 很长，必须允许在任意位置折行，否则会把整行撑开 */
+    #provider-hint { overflow-wrap: anywhere; line-height: 1.6; }
     .key-input {
       width: 100%; padding: 8px; background: #120a03; color: #c8b28a;
       border: 1px solid #3a2410; font-family: inherit; font-size: 13px;
@@ -96,11 +98,26 @@
 <main>
   <h2>A P I キ ー</h2>
   <p class="hint">
-    このサービスはフレームワークのみを提供します。利用するモデルの API キーは
-    ご自身で登録してください。キーはアカウントごとに暗号化して保存され、
+    このサービスはフレームワークのみを提供します。使うサービスを選び、そのサービスの
+    API キーをご自身で登録してください。キーはアカウントごとに暗号化して保存され、
     他の利用者からは見えません。料金もご自身のアカウントに発生します。
   </p>
-  <div id="providers"></div>
+  <div class="row">
+    <div>
+      <div class="name">サ ー ビ ス</div>
+      <div class="sub">キーを登録するサービスを選びます。<br>登録済みのものは上書き・削除できます。</div>
+    </div>
+    <div class="key-cell">
+      <select id="provider-select"></select>
+      <div class="sub" id="provider-hint"></div>
+      <input id="provider-key" class="key-input" type="password"
+             placeholder="API キーを貼り付け" autocomplete="off" spellcheck="false">
+      <div class="key-actions">
+        <button id="provider-save" class="primary" type="button">保 存</button>
+        <button id="provider-delete" class="secondary" type="button" hidden>削 除</button>
+      </div>
+    </div>
+  </div>
   <div class="msg" id="msg-providers" role="status"></div>
 
   <h2>人 格 モ デ ル</h2>
@@ -183,69 +200,67 @@ function setMsg(id, text, isError) {
 
 // --- API キー --------------------------------------------------------------
 
-function buildProviderRow(provider) {
-  const row = document.createElement('div');
-  row.className = 'row';
+let providerState = { providers: [], selected: null };
 
-  const left = document.createElement('div');
-  const name = document.createElement('div');
-  name.className = 'name';
-  name.textContent = provider.label;
-  const sub = document.createElement('div');
-  sub.className = 'sub';
-  sub.textContent = provider.configured
-    ? `登録済み ${provider.hint}`
-    : '未登録';
-  left.append(name, sub);
-
-  const right = document.createElement('div');
-  right.className = 'key-cell';
-
-  const input = document.createElement('input');
-  input.type = 'password';
-  input.placeholder = provider.configured ? '新しいキーで上書き' : 'API キーを貼り付け';
-  input.className = 'key-input';
-  input.dataset.provider = provider.name;
-  input.autocomplete = 'off';
-  input.spellcheck = false;
-
-  const actions = document.createElement('div');
-  actions.className = 'key-actions';
-
-  const save = document.createElement('button');
-  save.type = 'button';
-  save.className = 'primary';
-  save.textContent = '保 存';
-  save.addEventListener('click', () => saveKey(provider.name, input, save));
-  actions.append(save);
-
-  if (provider.configured) {
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'secondary';
-    del.textContent = '削 除';
-    del.addEventListener('click', () => deleteKey(provider.name, del));
-    actions.append(del);
-  }
-
-  right.append(input, actions);
-
-  row.append(left, right);
-  return row;
+function providerByName(name) {
+  return providerState.providers.find((item) => item.name === name) || null;
 }
 
 function renderProviders(data) {
-  const host = document.getElementById('providers');
-  host.textContent = '';
-  data.providers.forEach((provider) => host.appendChild(buildProviderRow(provider)));
+  providerState.providers = data.providers;
+  const select = document.getElementById('provider-select');
+  select.textContent = '';
+
+  data.providers.forEach((provider) => {
+    const opt = document.createElement('option');
+    opt.value = provider.name;
+    opt.textContent = provider.configured
+      ? `${provider.label}（登録済み ${provider.hint}）`
+      : `${provider.label}（未登録）`;
+    select.appendChild(opt);
+  });
+
+  const names = data.providers.map((provider) => provider.name);
+  if (!names.includes(providerState.selected)) {
+    const firstOpen = data.providers.find((provider) => !provider.configured);
+    providerState.selected = (firstOpen || data.providers[0] || {}).name || null;
+  }
+  if (providerState.selected) select.value = providerState.selected;
+  syncProviderRow();
 }
 
-async function saveKey(name, input, button) {
+function syncProviderRow() {
+  const select = document.getElementById('provider-select');
+  const name = select.value;
+  providerState.selected = name;
+  const provider = providerByName(name);
+  const input = document.getElementById('provider-key');
+  const del = document.getElementById('provider-delete');
+  const hint = document.getElementById('provider-hint');
+
+  input.value = '';
+  if (!provider) {
+    input.placeholder = 'API キーを貼り付け';
+    del.hidden = true;
+    hint.textContent = '';
+    return;
+  }
+  input.placeholder = provider.configured ? '新しいキーで上書き' : 'API キーを貼り付け';
+  del.hidden = !provider.configured;
+  const models = Array.isArray(provider.models) ? provider.models.length : 0;
+  hint.textContent = `${provider.base_url} ・ モデル ${models} 件${provider.configured ? ' ・ 登録済み' : ''}`;
+}
+
+async function saveKey() {
+  const name = document.getElementById('provider-select').value;
+  const input = document.getElementById('provider-key');
   const apiKey = input.value.trim();
+  if (!name) return;
   if (apiKey.length < 8) {
     setMsg('msg-providers', 'API キーが短すぎます', true);
     return;
   }
+  const button = document.getElementById('provider-save');
   button.disabled = true;
   setMsg('msg-providers', '');
   try {
@@ -259,15 +274,20 @@ async function saveKey(name, input, button) {
       setMsg('msg-providers', (data.error && data.error.message) || '保存に失敗しました', true);
       return;
     }
+    providerState.selected = name;
+    input.value = '';
     renderProviders(await response.json());
-    setMsg('msg-providers', '保存しました。使えるモデルが増えました。');
+    setMsg('msg-providers', '保存しました。このサービスのモデルが選べるようになりました。');
     await refreshAgents();
   } finally {
     button.disabled = false;
   }
 }
 
-async function deleteKey(name, button) {
+async function deleteKey() {
+  const name = document.getElementById('provider-select').value;
+  if (!name) return;
+  const button = document.getElementById('provider-delete');
   button.disabled = true;
   setMsg('msg-providers', '');
   try {
@@ -276,6 +296,7 @@ async function deleteKey(name, button) {
       headers: { 'X-CSRF-Token': csrf },
     });
     if (response.ok) {
+      providerState.selected = name;
       renderProviders(await response.json());
       setMsg('msg-providers', '削除しました。');
       await refreshAgents();
@@ -307,13 +328,22 @@ function buildRow(agent) {
 
   const select = document.createElement('select');
   select.dataset.agent = agent.id;
+  // 按服务商分组：接入的服务商一多，扁平的模型列表就没法看了。
+  const groups = new Map();
   modelState.options.forEach((option) => {
+    let group = groups.get(option.provider);
+    if (!group) {
+      group = document.createElement('optgroup');
+      group.label = option.provider_label || option.provider;
+      groups.set(option.provider, group);
+      select.appendChild(group);
+    }
     const opt = document.createElement('option');
     opt.value = `${option.provider}|${option.model}`;
-    opt.textContent = option.available ? option.label : `${option.label}（未設定）`;
+    opt.textContent = option.available ? option.label : `${option.label}（未登録）`;
     opt.disabled = !option.available;
     if (option.provider === agent.provider && option.model === agent.model) opt.selected = true;
-    select.appendChild(opt);
+    group.appendChild(opt);
   });
 
   row.append(left, select);
@@ -464,6 +494,10 @@ async function saveVoting() {
 }
 
 document.getElementById('save-voting').addEventListener('click', saveVoting);
+
+document.getElementById('provider-select').addEventListener('change', syncProviderRow);
+document.getElementById('provider-save').addEventListener('click', saveKey);
+document.getElementById('provider-delete').addEventListener('click', deleteKey);
 
 document.getElementById('maxtokens').addEventListener('input', updateNote);
 

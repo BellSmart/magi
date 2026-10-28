@@ -48,17 +48,51 @@ mock provider 不发任何网络请求，三台分别给出 yes / no / yes，可
 
 ### 接真实的模型
 
-这个项目只提供框架：**服务端不保存任何厂商密钥**。每个用户登录后到「設 定」页
-填自己的 API キー（DeepSeek / Kimi / 千問），key 按用户加密存库，
-费用也记在各自的账号上。
+这个项目只提供框架：**服务端不保存任何厂商密钥**。每个用户登录后到「設 定」页，
+先从下拉选单里挑服务商、粘自己的 API キー，再在「人 格 モ デ ル」里挑各人格要用的模型。
+key 按用户 AES-GCM 加密存库，费用也记在各自的账号上。
+
+内置的服务商（`config/agents.yaml` 的 `providers`）：
+
+| provider | 说明 | base_url |
+|---|---|---|
+| `deepseek` | DeepSeek 官方 | `https://api.deepseek.com/v1` |
+| `kimi` | 月之暗面（大陆站为 `api.moonshot.cn`） | `https://api.moonshot.ai/v1` |
+| `qwen` | 阿里云百炼 / DashScope | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| `siliconflow` | 硅基流动（MaaS 聚合，一个 key 通吃多家开源模型） | `https://api.siliconflow.cn/v1` |
+| `openrouter` | OpenRouter（海外聚合） | `https://openrouter.ai/api/v1` |
+| `zhipu` | 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4` |
 
 ```bash
-# 管理员建号后，用户自己配置：
-#   登录 → 設定 → A P I キ ー → 粘贴 key → 保存
-#   再在「人 格 モ デ ル」里挑一个该服务商的模型
+# 用户侧的操作就三步：
+#   登录 → 設定 → A P I キ ー → 选服务商、贴 key、保存
+#   設定 → 人 格 モ デ ル → 每台挑一个该服务商的模型 → 保存
 ```
 
-换服务商只要改 `config/agents.yaml` 的 `base_url`，不需要动代码。
+**接别家**（vLLM、Ollama、自建网关，或者表里没列的服务商）只改 YAML 两处，不用动代码：
+
+```yaml
+providers:
+  my_gateway:
+    label: 我的网关
+    base_url: https://llm.example.com/v1
+    api_key: ""            # 留空：真正的 key 由用户在设置页填
+
+models:
+  - provider: my_gateway
+    model: qwen3-32b
+    label: 我的网关 · Qwen3 32B
+```
+
+之所以要白名单：`base_url` 由服务端决定，用户只能填 key。若允许用户自带地址，
+就等于把「往任意主机发请求」和「把别人的 key 送到任意主机」两件事一起开放了（SSRF）。
+
+> 模型 ID 各家会更新换代，配置里写的只是常用默认值。填之前用
+> `curl <base_url>/models -H "Authorization: Bearer $KEY"` 核对一下。
+>
+> 检索目前用的是 DeepSeek 的自研搜索（与模型共用同一个 key）。如果用户只配了别家
+> 的 key，检索会跳过，三位 agent 直接凭模型知识作答——要恢复检索，配一个 DeepSeek key，
+> 或在 `config/agents.yaml` 里把 `search.provider` 切回 `tavily` 并填 `TAVILY_API_KEY`。
 
 ## 部署与更新
 
