@@ -129,7 +129,7 @@ async def run_agent(
 
     vote = parse_leading_vote(raw)
     if vote is None:
-        # 模型没按规定开场，兜底再问一次；仍读不出就弃权，绝不猜。
+        # 首行没表态就再问一次，还读不出就弃权，不猜。
         try:
             vote = await asyncio.wait_for(
                 classify_answer(cfg, agent, question, raw),

@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="ja">
 <head>
   <meta charset="utf-8">
@@ -6,8 +6,8 @@
   <title>MAGI</title>
   <link rel="stylesheet" href="/static/style.css">
   <style>
-    /* 始终为页面滚动条预留槽位：否则内容一旦超过一屏，滚动条出现→宽度变窄→
-       .magi 的 aspect-ratio 高度随之变化→总高度又缩回→滚动条消失，来回震荡。 */
+    /* 常驻滚动条槽位。不留的话：内容超一屏 → 滚动条出现 → 宽度变窄 → aspect-ratio
+       算出的高度变矮 → 退回一屏 → 滚动条消失，来回震荡。 */
     html { scrollbar-gutter: stable; }
 
     /* 履歴の記録を主画面に読み込んだときの帯 */
@@ -24,10 +24,10 @@
     .banner a:hover { background: #ff8d00; color: #05070a; }
     .banner[hidden] { display: none; }
 
-    /* 只补上游样式没覆盖到的交互件，其余复用 style.css */
+    /* 补上游没覆盖的交互件，其余复用 style.css */
     .input-container { row-gap: 6px; align-items: start; }
-    /* 编辑器用镜像层测高，绝不再对 textarea 做 auto → scrollHeight 的塌陷式测量：
-       那会让页面每次按键先变矮再变高，滚动位置被钳制后不会恢复，表现为页面抖动。 */
+    /* 用镜像层测高。别用 auto → scrollHeight：那样每敲一个键都会先塌再撑，
+       滚动位置被钳住回不来，看起来就是页面在抖。 */
     .input-container > .editor { grid-column: 2; position: relative; }
     .editor > textarea,
     .editor > .mirror {
@@ -426,15 +426,14 @@ function autoGrow() {
   const mirror = els.mirror;
   if (!mirror) return;
 
-  // 用镜像层量内容高度，全程不动 textarea 自身的高度，
-  // 因此不会出现"塌陷 → 撑开"引发的页面滚动跳动。
-  // 末尾补一个零宽字符，保证最后一行换行时也能被计入高度。
+  // 只量镜像层，不动 textarea 高度，所以不会塌陷再撑开。
+  // 末尾补零宽字符，最后一行换行时才算得准。
   mirror.textContent = el.value + '\u200b';
 
   const max = Math.min(window.innerHeight * 0.38, 420);
   const height = Math.max(MIN_EDITOR_HEIGHT, Math.min(mirror.offsetHeight, max));
 
-  // 变化不足 1px 就不写样式，避免每帧触发重排。
+  // 差不到 1px 就不写样式，省一次重排。
   if (Math.abs(el.offsetHeight - height) > 1) {
     el.style.height = `${height}px`;
   }
@@ -530,7 +529,7 @@ els.query.addEventListener('input', () => {
   autoGrow();
 });
 
-// 窗口尺寸变化会改变高度上限（min(38vh, 420px)），需要重新夹紧。
+// 高度上限跟视口走（min(38vh, 420px)），尺寸变了要重新夹。
 window.addEventListener('resize', autoGrow);
 
 els.query.addEventListener('keydown', (event) => {

@@ -17,7 +17,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 
-# 开发环境下允许的构建产物路径；生产由 nginx 直接托管。
+# 开发时的静态目录；生产由 nginx 托管。
 WEB_DIST = BASE_DIR / "web" / "dist"
 
 
@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     # --- 会话 ---
     session_idle_seconds: int = 7 * 24 * 3600
     session_absolute_seconds: int = 30 * 24 * 3600
-    # 生产必须为 True（"__Host-" 前缀要求 Secure）。开发用 http，关掉。
+    # 生产必须 True（__Host- 前缀要求 Secure）。
     secure_cookies: bool = True
     # 为空时按 secure_cookies 推导。
     cookie_name: str = ""
@@ -73,11 +73,11 @@ class Settings(BaseSettings):
     login_lockout_seconds: int = 15 * 60
 
     # --- 成本护栏 ---
-    # 只保留全局日花费熔断；按用户的次数上限已取消。
+    # 只剩全局日花费熔断，按用户的次数上限已取消。
     global_daily_budget_yuan: float = 30.0
-    # 长文本输入：允许整段材料/会议记录直接贴进来。
+    # 允许整段材料直接贴进来。
     max_question_chars: int = 8000
-    # 单票输出上限的硬天花板：用户可自定义，但不能越过这里。
+    # 用户可调输出上限，但不能越过这个天花板。
     max_output_tokens: int = 8000
     min_password_length: int = 12
 
@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     def session_cookie_name(self) -> str:
         if self.cookie_name:
             return self.cookie_name
-        # __Host- 前缀强制 Secure + Path=/ + 无 Domain，是防子域覆盖的最简手段。
+        # __Host- 强制 Secure + Path=/ + 无 Domain，防子域覆盖。
         return "__Host-magi_sid" if self.secure_cookies else "magi_sid"
 
     @model_validator(mode="after")

@@ -7,8 +7,7 @@ from collections.abc import Callable, Iterator
 import pytest
 from fastapi.testclient import TestClient
 
-# 全部走 mock:// provider：不发网络请求，但走完整的 runner/聚合/SSE 链路。
-# 三台故意给出不同票型（yes / no / yes），用来验证一票否决。
+# 全走 mock://，不发请求，但走完整链路。三台票型故意不同（yes/no/yes）。
 MOCK_AGENTS_YAML = """
 providers:
   mock:

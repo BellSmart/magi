@@ -1,9 +1,6 @@
-"""一次提问的编排。
+"""一次提问的编排：分类 → 检索 → 三路并发 → 落库并推送 → 聚合。
 
-流程：分类 → （检索）→ 三路并发 → 逐票落库并广播 → 聚合 → 定稿。
-
-关键取舍：三路 agent 用 ``asyncio.as_completed``，谁先回来谁先推送，
-而不是等三路齐了再一起算——页面上的闪烁状态因此有真实语义。
+三路用 as_completed：谁先回来谁先推，页面上的闪烁状态才有真实含义。
 """
 
 from __future__ import annotations
@@ -36,7 +33,7 @@ from app.search.factory import build_provider
 
 logger = logging.getLogger(__name__)
 
-# 后台任务集合：不持有引用的话，任务可能在跑完前被 GC 掉。
+# 不持有引用的话，任务可能在跑完前被 GC。
 _RUNNING: set[asyncio.Task[None]] = set()
 
 # provider 带进程内缓存，复用同一个实例才有意义。
@@ -44,14 +41,13 @@ _search_provider = None
 _search_signature: tuple[str, int] | None = None
 SEARCH_TIMEOUT_SECONDS = 25.0
 
-# 送进 prompt 的来源上限。查得多不等于全塞进去：
-# 14 条 × 400 字会把 prompt 撑到 3000+ token，边际收益很低。
+# 送进 prompt 的来源上限。查得多不等于全塞，边际收益很快就没了。
 PROMPT_SOURCE_CAP = 11
 
 # 合并时给"本台自己的检索结果"预留的条数
 SOURCE_EXTRA_SLOTS = 4
 
-# 共享检索的视角：既要事实，也要反方，避免三台都只看到支持性材料。
+# 共享基线要同时覆盖正反两面，否则三台只看到支持性材料。
 SHARED_ANGLE = (
     "a neutral factual overview: what is actually being claimed, what the "
     "mainstream evidence says, and what the strongest opposing view is"
@@ -59,7 +55,7 @@ SHARED_ANGLE = (
 
 
 def _norm_title(title: str | None) -> str:
-    """标题归一：同一篇文章在不同镜像站的标题只差后缀，按前缀去重。"""
+    """同一篇文章在不同镜像站只差个后缀，按前缀比对。"""
     return re.sub(r"[\W_]+", "", (title or "").lower())[:40]
 
 
@@ -93,8 +89,8 @@ def _merge_sources(
 ) -> list[dict[str, Any]]:
     """共享基线 + 本台新增。
 
-    必须先给 extra 留位置：基线一旦占满 cap，截断后本台自己的检索结果
-    会被整体挤掉，三台看到的又变成同一份（这个坑踩过一次）。
+    必须给 extra 留位置：基线占满 cap 后截断，本台结果会被整体挤掉，
+    三台又变成看同一份（踩过）。
     """
     seen_urls = {item.get("url") for item in base}
     seen_titles = {_norm_title(item.get("title")) for item in base}
@@ -178,7 +174,7 @@ async def _run_queries(
     include_domains: list[str] | None = None,
     ori_question: str | None = None,
 ) -> list:
-    """并发跑一批查询，逐条落库，返回按 URL 去重后的结果。"""
+    """并发跑一批查询，逐条落库，按 URL/标题去重后返回。"""
     provider = _get_search_provider(cfg)
     if provider is None:
         return []
@@ -219,11 +215,7 @@ async def _run_queries(
 async def _shared_search(
     cfg, question_id: str, text: str  # noqa: ANN001
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """共享基线：三台共同的事实托底。
-
-    跑多路查询（事实 + 反方），确保不只是搜到支持性材料。
-    即使某台自己的检索跑偏，它也还有这份基线可依。
-    """
+    """共享基线：三台共同的事实托底，各自检索跑偏时还有它兜着。"""
     provider = _get_search_provider(cfg)
     if provider is None:
         return [], {"enabled": False, "count": 0, "results": []}
@@ -261,14 +253,7 @@ async def _shared_search(
 async def _agent_search(
     cfg, question_id: str, text: str, agent  # noqa: ANN001
 ) -> tuple[list[str], list[dict[str, Any]]]:
-    """该人格自己的检索。
-
-    分歧如果只来自"对同一份材料的权重不同"，那是推理风格的差异；
-    让三台拿到的材料本身就有偏向，才会出现"你们看的根本不是同一批证据"。
-
-    查询先按该人格的视角改写成英文短句（正反各一），而不是把关键词
-    糊在命题后面——后者会让检索抓住关键词而不是议题。
-    """
+    """该人格自己的检索：按视角改写成英文短句，正反各一条。"""
     provider = _get_search_provider(cfg)
     if provider is None or not agent.search_angle:
         return [], []

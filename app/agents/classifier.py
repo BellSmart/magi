@@ -1,10 +1,8 @@
-"""把输入与回答都归一成可判定的形态。
+"""输入分类与投票解析。
 
-两块逻辑：
-1. ``classify_form``：输入是疑问句、提案，还是压根不能表决。
-   上游只问"是不是一个是非疑问句"，于是"中国是当今世界第一强国"这种
-   陈述会被判成"非是否问题"而永远走情报——但用户要的是对提案表决。
-2. ``parse_leading_vote``：从回答首行读票。省掉一次 LLM 归类调用。
+classify_form：区分疑问句 / 陈述句 / 不能表决。
+  只看"是不是是非疑问句"会把陈述句漏掉，而陈述句恰恰是最常被表决的东西。
+parse_leading_vote：从回答首行读票，省一次归类调用。
 """
 
 from __future__ import annotations
@@ -144,11 +142,10 @@ async def rewrite_queries(
     angle: str,
     count: int,
 ) -> list[str]:
-    """按给定视角，把命题改写成若干条英文查询。
+    """按视角把命题改写成英文查询。
 
-    为什么必须改写：把关键词糊在命题后面会让检索抓住关键词而不是议题，
-    实测三台换来"结果完全不重叠"却大量离题。
-    为什么用英文：英文查询在通用搜索引擎上的召回质量明显更稳定。
+    直接拼关键词会让检索抓关键词而不是议题（试过，结果完全不重叠但全是离题内容）。
+    英文是因为召回稳定得多。
     """
     fallback = [" ".join(question.split())[:120]]
     if count <= 0:
@@ -216,7 +213,7 @@ async def classify_answer(
 
 
 async def classify_form(cfg: AgentsConfig, question: str) -> str:
-    """判错方向的代价可控：判成 NEITHER 只是不投票，不会出错。"""
+    """判成 NEITHER 只是不投票，代价可控，所以失败两次就放弃。"""
     provider = cfg.provider(cfg.classifier.provider)
     extra = {"thinking": {"type": "disabled"}} if provider.thinking_switch else None
 

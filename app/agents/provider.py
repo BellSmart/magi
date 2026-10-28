@@ -39,7 +39,7 @@ class ProviderError(Exception):
 
     @property
     def is_transient(self) -> bool:
-        """瞬时故障判为弃权而不是错误：一次抖动不该否决整个结果。"""
+        """瞬时故障算弃权：一次抖动不该否决整个结果。"""
         return self.retryable or (self.status is not None and self.status in RETRYABLE_STATUS)
 
 
@@ -76,8 +76,8 @@ def _cost(provider: ProviderConfig, usage: dict[str, Any]) -> Usage:
     prompt = int(usage.get("prompt_tokens") or 0)
     completion = int(usage.get("completion_tokens") or 0)
 
-    # DeepSeek 返回 prompt_cache_hit_tokens / prompt_cache_miss_tokens；
-    # OpenAI 系则是 prompt_tokens_details.cached_tokens。两种都认。
+    # DeepSeek 用 prompt_cache_hit_tokens / miss_tokens，OpenAI 用
+    # prompt_tokens_details.cached_tokens，两种都认。
     hit = int(
         usage.get("prompt_cache_hit_tokens")
         or (usage.get("prompt_tokens_details") or {}).get("cached_tokens")
@@ -113,7 +113,7 @@ async def chat(
         return _mock_completion(model=model, meta=meta)
 
     if not provider.api_key:
-        # 早失败：否则会以空 Bearer 打过去，换回一个难懂的 401。
+        # 早点失败，免得空 Bearer 打过去换回一个看不懂的 401。
         raise ProviderError(
             f"{provider.base_url} 未配置 API key，请检查环境变量", status=401
         )
@@ -187,10 +187,8 @@ def _parse(data: dict[str, Any], provider: ProviderConfig) -> Completion:
     )
 
 
-# --- mock provider ---------------------------------------------------------
-#
-# 用 ``base_url: mock://`` 启用，仅供本地链路验证与测试，不产生任何网络请求。
-# 三个 agent 给出不同的票型，正好覆盖聚合规则。
+# --- mock provider ---
+# base_url: mock:// 时启用。不联网，给三台不同票型，覆盖聚合规则。
 
 _MOCK_VOTES = {
     "melchior": ("yes", "Yes."),
@@ -211,7 +209,7 @@ def _mock_completion(*, model: str, meta: dict[str, Any] | None) -> Completion:
     elif role == "rewrite_query":
         content = f"mock 検索クエリ {agent}"
     else:
-        # 与真实路径一致：首行表态，正文另起。
+        # 和真实路径一样：首行表态。
         content = f"{vote.upper()}\n\n（mock {agent}）{text}"
 
     return Completion(

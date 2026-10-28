@@ -41,7 +41,7 @@ class Verdict:
     tally: dict[str, int] = field(default_factory=dict)
     degraded: bool = False
     reason_code: str = "unanimous"
-    # 与多数意见不一致的票，用于在界面上标注「少数意見」
+    # 与多数不同的票，界面用来标「少数意見」
     dissent: tuple[str, ...] = ()
 
     @property
@@ -125,7 +125,7 @@ def aggregate(
             dissent=("yes",) if yes_count else (),
         )
 
-    # 条件票是弱赞成：只有它压过明确赞成票时，才把结论降为「状 態」。
+    # 条件票算弱赞成，只有压过明确赞成才降为「状 態」。
     if yes_count > conditional_count:
         return Verdict(
             "yes",

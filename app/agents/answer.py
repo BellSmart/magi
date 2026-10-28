@@ -12,10 +12,10 @@ from __future__ import annotations
 
 MIN_OUTPUT_TOKENS = 256
 DEFAULT_MAX_TOKENS = 2000
-# 語数へ換算するときの係数。中国語はほぼ 1 文字 1 token。
+# 概算係数。中国語はほぼ 1 文字 1 token。
 TOKENS_PER_WORD = 4
 
-# DeepSeek の effort は low / high / max の三段（medium は high に丸められる）。
+# DeepSeek は low / high / max の三段（medium は high 扱い）。
 EFFORT_LABELS: dict[str, str] = {
     "low": "低（速い・安い）",
     "high": "高（標準的な推論）",

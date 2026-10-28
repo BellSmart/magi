@@ -27,8 +27,7 @@ _factory: sessionmaker[Session] | None = None
 def _make_engine(url: str) -> Engine:
     is_sqlite = url.startswith("sqlite")
     if is_sqlite:
-        # 只创建"这个 URL 指向的目录"，不要无条件去建仓库里的 data/：
-        # 生产环境 /opt/magi 是只读的，那样会在启动时直接崩掉。
+        # 只建 URL 指向的目录。别无条件造 data/：生产 /opt/magi 只读，会崩。
         path = url.split("sqlite:///", 1)[-1]
         if path and path != ":memory:":
             Path(path).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
@@ -36,7 +35,7 @@ def _make_engine(url: str) -> Engine:
         url,
         echo=False,
         pool_pre_ping=True,
-        # SQLite 需要允许跨线程（FastAPI 线程池）；其余数据库忽略该参数。
+        # SQLite 要允许跨线程（FastAPI 线程池用），其他数据库忽略。
         connect_args={"check_same_thread": False} if is_sqlite else {},
     )
 
@@ -77,7 +76,7 @@ def init_db() -> None:
 
 
 def _migrate_sqlite() -> None:
-    """create_all 不会给已有表加列，这里补几条幂等的 ALTER。
+    """create_all 不会给已有表加列，这里补几个幂等的 ALTER。
 
     只覆盖 SQLite（当前唯一的部署形态）；换 Postgres 时改用 Alembic。
     """

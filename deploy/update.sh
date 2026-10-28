@@ -1,18 +1,12 @@
 #!/usr/bin/env bash
-# MAGI 增量更新：把新代码同步到 /opt/magi，必要时重装依赖，然后重启并自检。
+# 增量更新：同步代码到 /opt/magi，按需装依赖，重启并自检。
 #
-# 用法：
-#   sudo bash deploy/update.sh                  # 脚本所在仓库里就地更新
-#   sudo bash deploy/update.sh /root/magi-src   # 用服务器上的目录
-#   sudo bash deploy/update.sh /root/magi.tar.gz  # 用上传的压缩包
+#   sudo bash deploy/update.sh                     # 用脚本所在仓库
+#   sudo bash deploy/update.sh /root/magi-src      # 用服务器上的目录
+#   sudo bash deploy/update.sh /root/magi.tar.gz   # 用上传的压缩包
 #
-# 做的事（顺序固定，失败就停）：
-#   1. 备份数据库到 /var/backups/magi（保留最近 10 份）
-#   2. rsync 覆盖 /opt/magi（不动 .venv、数据目录、.env）
-#   3. pyproject.toml 变了才重装依赖
-#   4. 重启服务并轮询 /healthz，失败时打印日志并给出回滚命令
-#
-# 不碰 nginx、不碰 /etc/magi/magi.env、不碰数据库内容。
+# 不动 nginx、不动 magi.env、不动数据库内容；数据库改动靠应用启动时迁移。
+# 先在 /var/backups/magi 留一份快照再动手。
 
 set -euo pipefail
 

@@ -1,4 +1,4 @@
-"""数据模型。
+"""数据模型。时间统一存 UTC，展示层再转本地时区。
 
 时间统一用 UTC 存储；展示层再转本地时区。
 """
@@ -27,8 +27,7 @@ from app.db import Base
 
 
 def utcnow() -> datetime:
-    # 用 timezone.utc 而不是 datetime.UTC：后者是 3.11 才有的，
-    # 而 Ubuntu 22.04 自带的是 Python 3.10。
+    # 用 timezone.utc：datetime.UTC 要 3.11，而 22.04 上是 3.10。
     return datetime.now(timezone.utc)
 
 
@@ -44,14 +43,14 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    # 已废弃：按用户的每日提问上限已取消，列保留只为兼容既有数据库。
+    # 已废弃（每日上限取消），列留着只为兼容旧库。
     daily_quota: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    # 答申の既定値：出力上限（token/票）と思考強度（low/high/max）。
+    # 答申の既定値：1 票あたりの出力上限と思考強度。
     answer_max_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     answer_reasoning_effort: Mapped[str] = mapped_column(
         String(8), default="low"
     )
-    # 判定ルール：veto（一票否決）/ majority（多数決）。NULL なら設定既定値。
+    # veto / majority；NULL なら設定側の既定値。
     vote_policy: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     password_changed_at: Mapped[datetime] = mapped_column(
@@ -64,7 +63,7 @@ class User(Base):
 
 
 class AuthSession(Base):
-    """服务端会话。库里只存令牌的 SHA-256，泄库也拿不到可用 cookie。"""
+    """服务端会话。只存令牌的 SHA-256，泄库也拿不到可用 cookie。"""
 
     __tablename__ = "auth_sessions"
 
@@ -134,11 +133,11 @@ class Question(Base):
     )
     text: Mapped[str] = mapped_column(Text)
     is_yes_no: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
-    # question / proposition / none —— 提案也是要表决的，只是措辞不是疑问句。
+    # question / proposition / none
     form: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
-    # brief / standard / deep —— 旧档位，已废弃；保留列以兼容既有数据。
+    # 旧档位，已废弃，留着兼容旧数据。
     depth: Mapped[str] = mapped_column(String(16), default="standard")
-    # 単票あたりの出力上限（token）と思考強度。
+    # 1 票あたりの出力上限と思考強度。
     max_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     reasoning_effort: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
     # processing / info / yes / no / conditional / error
@@ -152,7 +151,7 @@ class Question(Base):
         DateTime(timezone=True), nullable=True
     )
     latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    # 分享链接的随机标识；为空表示未分享。
+    # 为空表示未分享。
     share_token: Mapped[Optional[str]] = mapped_column(
         String(64), unique=True, nullable=True
     )

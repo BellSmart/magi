@@ -1,21 +1,18 @@
 # 三个 agent 的模型与人格配置。
-#
-# 三家的接口都是 OpenAI 兼容的 /v1/chat/completions，所以只需换 base_url 与 model。
-# 密钥一律从环境变量取：${ENV:NAME} 形式，禁止把明文写进本文件。
-# 模型 ID 以各平台当前文档为准，换模型前先用 curl /models 核对。
+# 三个 provider 都是 OpenAI 兼容接口，换家只需改 base_url 与 model。
+# 密钥走环境变量，不要写明文。换模型前先用 curl /models 核对 ID。
 
 providers:
   deepseek:
     base_url: https://api.deepseek.com/v1
     api_key: ${ENV:DEEPSEEK_API_KEY}
     timeout_s: 90
-    # DeepSeek 默认开启思考模式：思维链也算 max_tokens，
-    # 短输出任务（分类）不关掉就会拿到空 content。
+    # DeepSeek 默认开思考，思维链也算 max_tokens，短任务必须关掉。
     thinking_switch: true
-    # 峰值 / 空闲时段价格见 https://api-docs.deepseek.com/zh-cn/quick_start/pricing
+    # 价格见 https://api-docs.deepseek.com/zh-cn/quick_start/pricing
     price_in_yuan_per_mtok: 2.0
     price_out_yuan_per_mtok: 8.0
-    # 缓存命中价约为未命中的 1/50（峰值 0.04 元/百万 token）
+    # 缓存命中约为未命中的 1/50
     price_in_cache_yuan_per_mtok: 0.04
 
   kimi:
@@ -23,7 +20,7 @@ providers:
     base_url: https://api.moonshot.ai/v1
     api_key: ${ENV:MOONSHOT_API_KEY}
     timeout_s: 90
-    # 旗舰模型较慢，highspeed 变体同能力、约 2-3 倍速，适合投票场景。
+    # highspeed 变体同能力、约 2-3 倍速。
     price_in_yuan_per_mtok: 0.0  # TODO 按控制台计价填写，未填则成本统计记 0
     price_out_yuan_per_mtok: 0.0
 
@@ -35,27 +32,23 @@ providers:
     price_in_yuan_per_mtok: 0.0  # TODO
     price_out_yuan_per_mtok: 0.0
 
-# 共享分类器：判断"这是不是一个 yes/no 问题"。
-# 用最便宜最快的模型即可，这个判断不需要强推理。
+# 共享分类器，用最便宜的模型就够。
 classifier:
   provider: deepseek
   model: deepseek-flash
   max_tokens: 64
 
-# 投票规则。任一否决票即否决（保留 EVA 语义），但要求有效票达到法定人数，
-# 弃权（超时/限流/provider 故障）不参与否决。
+# 任一否决即否决，但要有法定人数的有效票；弃权不参与否决。
 voting:
   quorum: 2
   veto_on_no: true
-  # 用户未在设置页选择时的默认判定规则
+  # 用户没选时的默认规则
   default_policy: veto
-  # weak_yes：条件票算弱赞成，只有压过明确赞成票才降为「状 態」（默认）
-  # blocking：任何一张条件票都使结论变为「状 態」（旧语义）
+  # weak_yes: 条件票算弱赞成（默认） / blocking: 任一张条件票就降为「状 態」
   conditional_policy: weak_yes
 
 search:
-  # deepseek：用自研搜索引擎，与模型共用同一个 key，按次计费（5 元/1000 次），
-  # QPS 100，适合多轮检索。tavily 仍然保留，改这一行即可切回。
+  # deepseek 用自研搜索（共用模型 key，5 元/1000 次）；tavily 仍保留，改这行切回。
   provider: deepseek
   api_key: ${ENV:DEEPSEEK_API_KEY}
   endpoint: https://api.deepseek.com/v1/tools/search
@@ -69,10 +62,9 @@ search:
   max_calls_per_question: 12
   cache_ttl_seconds: 21600
 
-# 用户可在「設 定」页为每个人格单独选择模型，但只能从这个白名单里挑。
-# 这样做有三个原因：避免任意 base_url（SSRF 与密钥外泄）、避免费用失控、
-# 也避免用户配出一个当前没有 key 的 provider 后满屏报错。
-# 只有 provider 配了 key 的选项会在界面上可选。
+# 用户在「設 定」页能为每个人格挑模型，但只能从这个白名单里选。
+# 限制来源是必要的：任意 base_url 会变成 SSRF 和密钥外泄，费用也控不住。
+# 没有 key 的 provider 在界面上显示为不可选。
 models:
   - provider: deepseek
     model: deepseek-flash
@@ -80,8 +72,7 @@ models:
   - provider: deepseek
     model: deepseek-v4-pro
     label: DeepSeek V4 Pro（强、贵）
-  # 下面两项在有对应 key 之前，界面上会显示为"未設定"且不可选。
-  # 填好 MOONSHOT_API_KEY / DASHSCOPE_API_KEY 之后自动可选，无需改代码。
+  # 这两项在有 key 之前不可选，填好环境变量就自动可选。
   - provider: kimi
     model: kimi-k3.1-pro-highspeed
     label: Kimi K3.1 Pro Highspeed
@@ -90,12 +81,10 @@ models:
     label: 千问 3.8 Max
 
 agents:
-  # 人格必须互斥到"判准"这一层，而不只是口吻。
-  # 早期版本给三个 agent 共享了一段"证据纪律 / 可反驳性 / 代价不对称"的通用规范，
-  # 结果是把科学家的判准强加给了母亲和女人，三者自然趋同。
-  # 现在每个人格写清：优化什么 / 用什么标准判定 / 拒绝什么 / 盲区在哪。
-  #
-  # search_angle 让三台各搜各的：改写后的短查询角度不同，分歧因此既来自权重也来自材料。
+  # 人格要互斥到"判准"这一层，光改口吻没用。
+  # 别再给三台加共享的理性规范：试过一次，结果就是三台趋同。
+  # 每个人格写清：优化什么 / 按什么判 / 拒绝什么 / 盲区在哪。
+  # search_angle 决定它自己那几路检索的角度。
   - id: melchior
     order: 1
     display: MELCHIOR • 1
