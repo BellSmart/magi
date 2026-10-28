@@ -80,6 +80,10 @@ systemctl enable magi.service >/dev/null
 systemctl restart magi.service
 
 say "nginx"
+# 站点配置会 include 这两个文件，缺了 nginx -t 直接失败，所以先装。
+install -d -m 0755 /etc/nginx/conf.d /etc/nginx/snippets
+install -m 0644 "$SRC_DIR/deploy/nginx-limits.conf" /etc/nginx/conf.d/00-magi-limits.conf
+install -m 0644 "$SRC_DIR/deploy/nginx-security.inc" /etc/nginx/snippets/magi-security.conf
 if grep -qs "letsencrypt" /etc/nginx/sites-available/magi; then
     echo "已配置 HTTPS，保持现有站点配置不动"
 else
@@ -116,6 +120,10 @@ cat <<'EOF'
      sudo ufw allow OpenSSH
      sudo ufw allow 80,443/tcp
      sudo ufw --force enable
+
+4) 公网加固（限速 / fail2ban / ufw / 内核参数 / 自动安全更新）
+     sudo bash deploy/harden.sh
+   SSH 端口不是 22 时：SSH_PORT=2222 sudo bash deploy/harden.sh
 
 创建账号：
      sudo magi-cli create-user --username alice

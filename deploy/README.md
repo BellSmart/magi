@@ -1,11 +1,12 @@
 # 部署到 Ubuntu
 
-面向 Ubuntu 22.04 / 24.04，单机。整套东西由四个文件组成：
+面向 Ubuntu 22.04 / 24.04，单机。整套东西由五个文件组成：
 
 | 文件 | 作用 |
 |---|---|
 | `deploy/install.sh` | 首次安装：建用户、装依赖、同步代码、建 venv、写 systemd、配 nginx（HTTP 引导态） |
 | `deploy/update.sh` | 增量更新：备份数据库、同步代码、按需重装依赖、重启并自检（见「日常运维」） |
+| `deploy/harden.sh` | 公网加固：nginx 限速、fail2ban、ufw、内核参数、自动安全更新（见第 5 步） |
 | `deploy/enable-tls.sh` | 签 Let's Encrypt 的 **IP 证书**，把 nginx 切到 HTTPS |
 | `deploy/magi-cli` | 账号管理命令的包装器，自动载入 `/etc/magi/magi.env` 并降权到 `magi` |
 
@@ -100,15 +101,40 @@ sudo bash deploy/enable-tls.sh <公网IP> you@example.com
 
 **这一步会在证书签发前保持 503** —— 在 TLS 就绪前不暴露明文登录。
 
-## 5. 防火墙
+## 5. 公网加固
 
 ```bash
-sudo ufw allow OpenSSH
-sudo ufw allow 80,443/tcp
-sudo ufw --force enable
+sudo bash deploy/harden.sh
+# sshd 不是 22 端口、站点不是 8080 时：
+SSH_PORT=2222 PORT=8080 sudo bash deploy/harden.sh
 ```
 
-uvicorn 只监听 `127.0.0.1:8000`，不需要为它开端口。
+脚本是幂等的，做五件事：
+
+1. **nginx 限速**（`/etc/nginx/conf.d/00-magi-limits.conf`）
+   - 全站 20 r/s、突发 40；登录 10 次/分；提问 6 次/分（最贵的入口）
+   - 单 IP 并发连接 20 条，慢连接超时 10s，请求体 256k 上限
+2. **安全响应头 + 路径过滤**（`snippets/magi-security.conf`，各站点 `include`）
+   - CSP、X-Frame-Options、nosniff、Referrer-Policy、Permissions-Policy
+   - 只放行 GET/HEAD/POST/PUT/DELETE/OPTIONS；`/.git`、`/.env`、`*.sql`、`*.py` 之类一律 404
+3. **fail2ban**：登录连续失败 6 次封 2 小时，被限速（429）刷到 30 次封 30 分钟，sshd 用默认 jail
+4. **ufw**：只放行 SSH 与站点端口，先加规则再 enable；**docker 发布的端口会绕过 ufw**，在 docker 里跑的服务仍然对外可达
+5. **内核参数 + 自动安全更新**：SYN cookies、不收 ICMP 重定向/源路由、`unattended-upgrades` 只装安全补丁
+
+`install.sh` 已经把限速与安全头两个文件装好了（站点配置 include 它们），
+所以老机器只跑 `harden.sh` 即可，重复跑不会叠加规则。
+
+> **关于 DDoS**：以上都是应用层（L7）手段——挡扫描器、口令爆破、单机洪水、慢连接。
+> 真正的流量型 DDoS（打满带宽）在单机上无解，要靠机房清洗或前面挂 Cloudflare；
+> 后者需要一个域名，且源站端口得是 Cloudflare 支持的（8080 不在其中，8443 可以）。
+
+日常查封禁：
+
+```bash
+fail2ban-client status magi-auth
+fail2ban-client status magi-ratelimit
+ufw status verbose
+```
 
 ## 6. 建账号
 

@@ -113,6 +113,23 @@ sudo bash deploy/update.sh /root/magi-20260101.tar.gz
 `systemctl restart magi` → 轮询 `/healthz` 最多 30 秒，失败时打印 journal 并给出回滚命令。
 它**不动** nginx 配置、`/etc/magi/magi.env` 和数据库内容；表结构变更由应用启动时自动迁移。
 
+### 公网加固
+
+部署到公网时先跑一遍：
+
+```bash
+sudo bash deploy/harden.sh          # sshd 不是 22 就 SSH_PORT=2222 ...
+```
+
+它会装 nginx 限速（登录 10 次/分、提问 6 次/分、单 IP 并发 20）、安全响应头与
+扫描路径 404、fail2ban（登录爆破与 429 洪水）、ufw（只放行 SSH 与站点端口）、
+SYN cookies 一类内核参数，以及只装安全补丁的 unattended-upgrades。幂等，可重复跑。
+
+应用本身的对策是：Argon2 口令 + 登录失败锁定、HttpOnly/SameSite=Lax 会话 cookie、
+CSRF 双提交校验、SQLAlchemy 全参数化查询、前端只用 `textContent` 渲染外部内容、
+模型 `base_url` 服务端白名单（防 SSRF）。**限速只能在应用层挡洪水**，真正的流量型
+DDoS 要靠机房清洗或 Cloudflare，那需要一个域名。详见 [deploy/README.md](deploy/README.md) 第 5 步。
+
 ## 账号管理
 
 没有管理后台，账号操作都在服务器上执行：

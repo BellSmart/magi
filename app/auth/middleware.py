@@ -86,6 +86,21 @@ class AuthGuardMiddleware(BaseHTTPMiddleware):
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """兜底安全头。生产环境 nginx 也会加一份，重复无害。"""
 
+    # 页面里有内联 <script>/<style>，所以必须保留 'unsafe-inline'；
+    # 但它仍然挡得住外链脚本、object/embed 和被别的站点 iframe 嵌套。
+    CSP = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "font-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'none'; "
+        "frame-ancestors 'none'; "
+        "form-action 'self'"
+    )
+
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
@@ -95,4 +110,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         headers.setdefault("X-Frame-Options", "DENY")
         headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+        headers.setdefault("Content-Security-Policy", self.CSP)
         return response
