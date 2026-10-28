@@ -96,9 +96,30 @@ class VotingConfig(BaseModel):
     conditional_policy: Literal["weak_yes", "blocking"] = "weak_yes"
 
 
+class SearchOption(BaseModel):
+    """用户可选的检索后端。
+
+    credential 指向复用哪份密钥：填模型服务商名表示共用那把 key，
+    用独立名字（比如 tavily）时设置页会单独给出一个输入框。
+    """
+
+    key: str
+    label: str = ""
+    kind: str = "deepseek"
+    endpoint: str = ""
+    credential: str = ""
+    note: str = ""
+
+    @property
+    def credential_name(self) -> str:
+        return self.credential or self.key
+
+
 class SearchConfig(BaseModel):
     # tavily | deepseek（deepseek 走自研搜索引擎，和模型共用同一个 key）
     provider: str = "tavily"
+    # 设置页里的可选后端；为空时退化为「只用 provider 这一家」。
+    options: list[SearchOption] = Field(default_factory=list)
     api_key: str = ""
     endpoint: str = ""
     timeout_s: float = 20.0
@@ -114,6 +135,11 @@ class SearchConfig(BaseModel):
     @property
     def enabled(self) -> bool:
         return bool(self.api_key)
+
+    def option(self, key: str | None) -> SearchOption | None:
+        if not key:
+            return None
+        return next((item for item in self.options if item.key == key), None)
 
 
 class AgentsConfig(BaseModel):

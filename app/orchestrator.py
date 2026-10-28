@@ -21,7 +21,7 @@ from app.agents.config import (
     model_catalog,
     rebind_classifier,
 )
-from app.credentials import apply_credentials, user_credentials
+from app.credentials import apply_credentials, apply_search_choice, user_credentials
 from app.agents.runner import AgentOutcome, run_agent
 from app.db import session_scope
 from app.models import (
@@ -384,9 +384,11 @@ async def run_question(question_id: str) -> None:
         reasoning_effort = question.reasoning_effort
         owner = db.get(User, user_id)
         vote_policy = (owner.vote_policy if owner else None) or base_cfg.voting.default_policy
+        search_choice = owner.search_provider if owner else None
 
     # 服务端不存厂商密钥：把该用户自己的 key 拼进配置再往下走。
     cfg = rebind_classifier(apply_credentials(base_cfg, creds))
+    cfg = apply_search_choice(cfg, search_choice, creds)
     agents = _effective_agents(cfg, user_id)
 
     emit(question_id, "question.started", {"text": text})

@@ -60,6 +60,8 @@
     button.secondary:hover:not(:disabled) { background: #2a1a08; color: #c8b28a; }
 
     .key-cell { display: flex; flex-direction: column; gap: 8px; }
+    .key-cell-inline { display: flex; flex-direction: column; gap: 8px; }
+    .key-cell-inline[hidden] { display: none; }
     /* base_url 很长，必须允许在任意位置折行，否则会把整行撑开 */
     #provider-hint { overflow-wrap: anywhere; line-height: 1.6; }
     .key-input {
@@ -131,6 +133,30 @@
     <button id="reset-agents" class="secondary" type="button">既定に戻す</button>
   </div>
   <div class="msg" id="msg-agents" role="status"></div>
+
+  <h2>検 索</h2>
+  <p class="hint">
+    三台が答える前に、共有の参考資料を集めます。使う検索サービスはここで選べます。
+    選んだサービスにキーが必要な場合は、下に入力欄が出ます。
+  </p>
+  <div class="row">
+    <div>
+      <div class="name">検 索 元</div>
+      <div class="sub">参照資料を集める先。<br>「検索しない」も選べます。</div>
+    </div>
+    <div class="key-cell">
+      <select id="search-select"></select>
+      <div class="sub" id="search-hint"></div>
+      <div class="key-cell-inline" id="search-key-row" hidden>
+        <input id="search-key" class="key-input" type="password"
+               placeholder="API キーを貼り付け" autocomplete="off" spellcheck="false">
+        <div class="key-actions">
+          <button id="search-key-save" class="primary" type="button">保 存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="msg" id="msg-search" role="status"></div>
 
   <h2>答 申</h2>
   <p class="hint">
@@ -402,6 +428,99 @@ async function resetAgents() {
   }
 }
 
+// --- 検索 ------------------------------------------------------------------
+
+let searchState = { options: [], choice: '' };
+
+function currentSearchOption() {
+  const key = document.getElementById('search-select').value;
+  return (searchState.options || []).find((option) => option.key === key) || null;
+}
+
+function syncSearchRow() {
+  const option = currentSearchOption();
+  const hint = document.getElementById('search-hint');
+  const keyRow = document.getElementById('search-key-row');
+  if (!option) {
+    hint.textContent = '';
+    keyRow.hidden = true;
+    return;
+  }
+  const status = option.kind === 'none'
+    ? ''
+    : (option.configured ? `登録済み ${option.hint}` : 'キー未登録');
+  hint.textContent = [option.note, status].filter(Boolean).join(' ・ ');
+  // 独立キー（Tavily など）がまだ無いときだけ入力欄を出す。「検索しない」は除く。
+  keyRow.hidden = !(option.standalone && !option.configured && option.kind !== 'none');
+}
+
+function renderSearch(data) {
+  searchState = data;
+  const select = document.getElementById('search-select');
+  select.textContent = '';
+  data.options.forEach((option) => {
+    const opt = document.createElement('option');
+    opt.value = option.key;
+    const needsKey = option.kind !== 'none' && !option.configured;
+    opt.textContent = needsKey ? `${option.label}（未登録）` : option.label;
+    if (option.key === data.choice) opt.selected = true;
+    select.appendChild(opt);
+  });
+  syncSearchRow();
+}
+
+async function refreshSearch() {
+  const response = await fetch('/api/settings/search');
+  if (response.ok) renderSearch(await response.json());
+}
+
+async function saveSearch(key) {
+  setMsg('msg-search', '');
+  const response = await fetch('/api/settings/search', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+    body: JSON.stringify({ provider: key }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    setMsg('msg-search', (data.error && data.error.message) || '保存に失敗しました', true);
+    return;
+  }
+  renderSearch(await response.json());
+  setMsg('msg-search', '保存しました。次の質問から反映されます。');
+}
+
+async function saveSearchKey() {
+  const option = currentSearchOption();
+  if (!option) return;
+  const input = document.getElementById('search-key');
+  const apiKey = input.value.trim();
+  if (apiKey.length < 8) {
+    setMsg('msg-search', 'API キーが短すぎます', true);
+    return;
+  }
+  const button = document.getElementById('search-key-save');
+  button.disabled = true;
+  setMsg('msg-search', '');
+  try {
+    const response = await fetch('/api/settings/providers', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      body: JSON.stringify({ provider: option.credential, api_key: apiKey }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      setMsg('msg-search', (data.error && data.error.message) || '保存に失敗しました', true);
+      return;
+    }
+    input.value = '';
+    await refreshSearch();
+    setMsg('msg-search', '保存しました。');
+  } finally {
+    button.disabled = false;
+  }
+}
+
 // --- 答申 ------------------------------------------------------------------
 
 function renderAnswer(data) {
@@ -499,6 +618,11 @@ document.getElementById('provider-select').addEventListener('change', syncProvid
 document.getElementById('provider-save').addEventListener('click', saveKey);
 document.getElementById('provider-delete').addEventListener('click', deleteKey);
 
+document.getElementById('search-select').addEventListener('change', (event) => {
+  saveSearch(event.target.value);
+});
+document.getElementById('search-key-save').addEventListener('click', saveSearchKey);
+
 document.getElementById('maxtokens').addEventListener('input', updateNote);
 
 document.getElementById('save-agents').addEventListener('click', saveAgents);
@@ -512,16 +636,18 @@ async function boot() {
   csrf = meData.csrf_token;
   document.getElementById('who').textContent = meData.user.username;
 
-  const [agentsRes, answerRes, votingRes, providersRes] = await Promise.all([
+  const [agentsRes, answerRes, votingRes, providersRes, searchRes] = await Promise.all([
     fetch('/api/settings/agents'),
     fetch('/api/settings/answer'),
     fetch('/api/settings/voting'),
     fetch('/api/settings/providers'),
+    fetch('/api/settings/search'),
   ]);
   if (agentsRes.ok) renderAgents(await agentsRes.json());
   if (answerRes.ok) renderAnswer(await answerRes.json());
   if (votingRes.ok) renderVoting(await votingRes.json());
   if (providersRes.ok) renderProviders(await providersRes.json());
+  if (searchRes.ok) renderSearch(await searchRes.json());
 }
 
 boot();

@@ -17,7 +17,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.agents.config import AgentsConfig
+from app.agents.config import AgentsConfig, SearchOption
 from app.config import get_settings
 from app.models import UserCredential
 
@@ -120,3 +120,37 @@ def apply_credentials(cfg: AgentsConfig, creds: dict[str, str]) -> AgentsConfig:
         update={"api_key": creds.get(cfg.search.provider, "")}
     )
     return cfg.model_copy(update={"providers": providers, "search": search})
+
+
+def search_choices(cfg: AgentsConfig) -> list:
+    """设置页里可以列出的检索后端（没有配置 options 时给一条兜底）。"""
+    if cfg.search.options:
+        return list(cfg.search.options)
+    return [SearchOption(key=cfg.search.provider, label=cfg.search.provider)]
+
+
+def apply_search_choice(
+    cfg: AgentsConfig, choice: str | None, creds: dict[str, str]
+) -> AgentsConfig:
+    """把用户选的检索后端拼进配置。
+
+    kind=none 或拿不到 key 时把 api_key 清空，``search.enabled`` 为假，
+    编排层就会跳过检索——这与「选了但没配 key」的预期一致。
+    """
+    options = search_choices(cfg)
+    if not cfg.search.options:
+        return cfg
+
+    chosen = cfg.search.option(choice) or cfg.search.option(cfg.search.provider)
+    if chosen is None:
+        chosen = options[0]
+
+    if chosen.kind == "none":
+        update = {"provider": "none", "api_key": "", "endpoint": ""}
+    else:
+        update = {
+            "provider": chosen.kind,
+            "endpoint": chosen.endpoint or cfg.search.endpoint,
+            "api_key": creds.get(chosen.credential_name, ""),
+        }
+    return cfg.model_copy(update={"search": cfg.search.model_copy(update=update)})

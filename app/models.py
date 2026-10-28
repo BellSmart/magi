@@ -52,6 +52,8 @@ class User(Base):
     )
     # veto / majority；NULL なら設定側の既定値。
     vote_policy: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    # 用户选的检索后端（对应 config/agents.yaml 的 search.options[].key）
+    search_provider: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     password_changed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow

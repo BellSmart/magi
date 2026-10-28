@@ -90,9 +90,9 @@ models:
 > 模型 ID 各家会更新换代，配置里写的只是常用默认值。填之前用
 > `curl <base_url>/models -H "Authorization: Bearer $KEY"` 核对一下。
 >
-> 检索目前用的是 DeepSeek 的自研搜索（与模型共用同一个 key）。如果用户只配了别家
-> 的 key，检索会跳过，三位 agent 直接凭模型知识作答——要恢复检索，配一个 DeepSeek key，
-> 或在 `config/agents.yaml` 里把 `search.provider` 切回 `tavily` 并填 `TAVILY_API_KEY`。
+> 检索也是可选的：「設 定 → 検 索」里可以选 DeepSeek 検索、Tavily 或「不检索」。
+> DeepSeek 検索共用模型那把 key；Tavily 需要单独填一个 key。配置在
+> `config/agents.yaml` 的 `search.options`，加一行就多一个选项（`kind: none` 表示不检索）。
 
 ## 部署与更新
 

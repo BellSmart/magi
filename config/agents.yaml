@@ -79,8 +79,29 @@ voting:
   conditional_policy: weak_yes
 
 search:
-  # deepseek 用自研搜索（共用模型 key，5 元/1000 次）；tavily 仍保留，改这行切回。
+  # 用户没选时用哪个后端（对应下面 options 里的 key）。
   provider: deepseek
+  # 「設 定 → 検 索」里可选的后端。
+  #   kind        后端实现（deepseek / tavily）
+  #   credential  用哪份 key：填模型服务商名表示共用，独立名字会单独出现在设置页
+  #   kind: none  表示不检索
+  options:
+    - key: deepseek
+      label: DeepSeek 検索
+      kind: deepseek
+      endpoint: https://api.deepseek.com/v1/tools/search
+      credential: deepseek
+      note: DeepSeek のモデル用 key を共用（5 元 / 1000 回）
+    - key: tavily
+      label: Tavily
+      kind: tavily
+      endpoint: https://api.tavily.com/search
+      credential: tavily
+      note: 別途 Tavily の key が必要
+    - key: "off"
+      label: 検索しない
+      kind: none
+      note: モデルの知識だけで回答（参照資料なし）
   # 搜索用同一个用户 key（DeepSeek Search 与模型接口共用鉴权）
   api_key: ""
   endpoint: https://api.deepseek.com/v1/tools/search

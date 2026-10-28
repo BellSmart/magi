@@ -100,6 +100,7 @@ def _migrate_sqlite() -> None:
             "answer_max_tokens": "INTEGER",
             "answer_reasoning_effort": "VARCHAR(8) NOT NULL DEFAULT 'low'",
             "vote_policy": "VARCHAR(16)",
+            "search_provider": "VARCHAR(32)",
         },
     }
     with engine.begin() as conn:

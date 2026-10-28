@@ -50,6 +50,7 @@
     }
     .input-container > .editor-meta {
       grid-column: 2; display: flex; justify-content: space-between;
+      flex-wrap: wrap; gap: 2px 10px;
       font-size: 11px; color: #7a5a2a; font-family: 'Lucida Console', monospace;
     }
     .input-container > .editor-meta .over { color: #a41413; }
@@ -70,6 +71,20 @@
     .input-container > .actions button:hover,
     .input-container > .actions a:hover { background: #ff8d00; color: #05070a; }
 
+    /* 送信按钮：手机没有 Ctrl，不能只靠 Ctrl+Enter */
+    .input-container > .send-row {
+      grid-column: 2; display: flex; justify-content: flex-end; margin-top: 2px;
+    }
+    .input-container > .send-row > button {
+      background: #1f1203; border: 2px solid #ff8d00; color: #ff8d00;
+      font-family: 'Lucida Console', monospace; cursor: pointer;
+      padding: 5px 28px; font-size: 13px; letter-spacing: .15em;
+    }
+    .input-container > .send-row > button:hover:not(:disabled) {
+      background: #ff8d00; color: #05070a;
+    }
+    .input-container > .send-row > button:disabled { opacity: .45; cursor: default; }
+
     .sources {
       margin-top: 12px; padding-top: 8px; border-top: 1px solid #3a2a10;
       color: #b46a00; font-family: 'Lucida Console', monospace; font-size: 12px;
@@ -89,57 +104,35 @@
     .modal .key { color: #b46a00; }
 
     /* ---- 移动端 ----------------------------------------------------------
-       三角布局靠 aspect-ratio + cqh 字号撑起来，屏幕一窄高度就只剩一半，
-       字会缩到看不清。手机上改成纵向排列：三块盾牌等宽堆叠，尺寸用 px 固定。 */
+       三角布局整体等比缩小，不拆成竖排：字号本来就是 cqh（容器高度单位），
+       宽度一收，字体、连线、盾牌一起按比例缩，形状保持不变。
+       唯一补的是高度下限——手机宽度下 2:1 会矮到字发糊，宁可稍微拉高一点。 */
     @media (max-width: 720px) {
-      body { margin: 8px; }
-      .system { padding: 10px; }
+      body { margin: 6px; }
+      .system { padding: 8px; }
 
-      .magi {
-        display: flex; flex-direction: column; gap: 8px;
-        aspect-ratio: auto; container-type: normal;
-        padding: 8px;
-      }
-      .magi > .connection,
-      .magi > .header { display: none; }
+      /* 高度按宽度等比给：height/width 恒定，字体（cqh）与网格列宽就一起缩，
+         20px 的固定边距也不会在窄屏上占掉过多比例。 */
+      .magi { width: 100%; min-height: min(60vw, 300px); }
 
-      .magi > .title { order: -3; font-size: 26px; letter-spacing: .1em; }
-      .magi > .system-status {
-        order: -2; display: flex; flex-wrap: wrap; gap: 4px 12px;
-      }
-      .magi > .system-status > div,
-      .magi > .system-status > div:first-child {
-        font-size: 10px; margin-left: 0; transform: none;
-      }
+      /* 窄屏让格子可以压到内容以下，否则 min-content 会把整个网格撑宽 */
+      .magi > * { min-width: 0; }
 
-      /* 三角裁切在纵向排列里只剩难看的缺口；这里用同等特异性的选择器压掉 */
-      .magi > .wise-man.melchior,
-      .magi > .wise-man.balthasar,
-      .magi > .wise-man.casper,
-      .magi > .wise-man.melchior > .inner,
-      .magi > .wise-man.balthasar > .inner,
-      .magi > .wise-man.casper > .inner { clip-path: none; }
-      .magi > .wise-man {
-        min-height: 56px; padding: 2px;
-        -webkit-tap-highlight-color: transparent;
-      }
-      .magi > .wise-man > .inner { font-size: 16px; letter-spacing: .08em; }
+      /* 遥测小字按容器缩会挤成一团，只留第一行 */
+      .magi > .system-status > div:not(:first-child) { display: none; }
 
-      .magi > .response {
-        order: 10; justify-self: stretch; align-self: stretch;
-        text-align: center; margin-top: 4px;
-        color: #ff8d00; border-color: #ff8d00;
-      }
-      .magi > .response > .inner {
-        font-size: 18px; display: block; white-space: normal;
-        border-color: currentColor; padding: 4px 8px;
-      }
+      /* 横向拉伸 2 倍在窄屏会顶出格子被裁掉，改成不拉伸、字号收一档 */
+      .magi > .header > span { font-size: 7cqh; transform: none; }
+      .magi > .response > .inner { font-size: 7cqh; padding: 1px 6px; }
+
+      .desktop-only { display: none; }
 
       .input-container { grid-template-columns: 1fr; row-gap: 6px; }
       .input-container > label { margin-bottom: 0; }
       .input-container > .editor,
       .input-container > .editor-meta,
-      .input-container > .actions { grid-column: 1; }
+      .input-container > .actions,
+      .input-container > .send-row { grid-column: 1; }
       .editor > textarea,
       .editor > .mirror { font-size: 16px; } /* ≥16px 才不会触发 iOS 聚焦缩放 */
       .input-container > .actions { justify-content: stretch; margin-top: 8px; }
@@ -147,6 +140,15 @@
       .input-container > .actions a {
         flex: 1; text-align: center; padding: 9px 0; font-size: 14px;
       }
+
+      /* 手机上没有 Ctrl，送信按钮必须给足点击面积 */
+      .input-container > .send-row { justify-content: stretch; }
+      .input-container > .send-row > button {
+        flex: 1; padding: 12px 0; font-size: 15px;
+      }
+
+      /* 右对齐的小字在窄屏会被裁掉边，改成左对齐换行 */
+      .input-container > .editor-meta { flex-direction: column; align-items: flex-start; gap: 2px; }
 
       .modal {
         max-width: none; max-height: 82%;
@@ -156,11 +158,6 @@
       .modal .key { margin-top: 8px; color: #ff8d00; }
 
       .sources { max-height: 42vh; font-size: 13px; }
-    }
-
-    /* 横屏手机：三角布局仍然太挤，沿用纵向 */
-    @media (max-height: 460px) and (orientation: landscape) {
-      .magi { aspect-ratio: 3 / 1; }
     }
   </style>
 </head>
@@ -198,16 +195,19 @@
     <label for="query">question: </label>
     <div class="editor">
       <textarea id="query" rows="3"
-        placeholder="質問 / 提案を入力。長文の貼り付け可（Ctrl+Enter で送信）"></textarea>
+        placeholder="質問 / 提案を入力。長文の貼り付け可（Ctrl+Enter または送信ボタンで送信）"></textarea>
       <div class="mirror" id="mirror" aria-hidden="true"></div>
     </div>
     <div class="editor-meta">
-      <span>Enter 改行 ／ Ctrl+Enter 送信</span>
+      <span><span class="desktop-only">Enter 改行 ／ Ctrl+Enter または</span>「送 信」で送信</span>
       <span id="counter" class="counter">0 / 8000</span>
     </div>
     <div class="editor-meta">
       <span id="session"></span>
       <a class="settings-link" id="answer-profile" href="/settings">答申 …</a>
+    </div>
+    <div class="send-row">
+      <button id="send" type="button">送 信</button>
     </div>
     <div class="actions">
       <button id="rules" type="button">判 定</button>
@@ -249,7 +249,7 @@ const VERDICT_COLOR = {
 
 const PRIORITY_LETTER = { yes: 'A', no: 'B', conditional: 'C', abstain: 'X', error: 'X', info: 'A' };
 
-const state = { csrf: null, questionId: null, source: null, answers: {}, question: '', votePolicy: 'veto' };
+const state = { csrf: null, questionId: null, source: null, answers: {}, question: '', votePolicy: 'veto', busy: false };
 
 const els = {
   query: document.getElementById('query'),
@@ -265,6 +265,7 @@ const els = {
   priority: document.getElementById('priority'),
   session: document.getElementById('session'),
   logout: document.getElementById('logout'),
+  send: document.getElementById('send'),
   sources: document.getElementById('sources'),
   sourceList: document.getElementById('source-list'),
 };
@@ -380,6 +381,7 @@ function subscribe(questionId) {
 }
 
 async function ask() {
+  if (state.busy) return;
   const text = els.query.value.trim();
   if (!text || !state.csrf) return;
   if (text.length > MAX_CHARS) {
@@ -387,6 +389,8 @@ async function ask() {
     return;
   }
 
+  state.busy = true;
+  els.send.disabled = true;
   els.query.value = '';
   updateCounter();
   autoGrow();
@@ -395,22 +399,27 @@ async function ask() {
   state.answers = {};
   state.question = text;
 
-  const response = await fetch('/api/questions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': state.csrf },
-    body: JSON.stringify({ text }),
-  });
+  try {
+    const response = await fetch('/api/questions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': state.csrf },
+      body: JSON.stringify({ text }),
+    });
 
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    els.session.textContent = (data.error && data.error.message) || '送信失敗';
-    finish('error');
-    return;
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      els.session.textContent = (data.error && data.error.message) || '送信失敗';
+      finish('error');
+      return;
+    }
+
+    const { id } = await response.json();
+    state.questionId = id;
+    subscribe(id);
+  } finally {
+    state.busy = false;
+    els.send.disabled = false;
   }
-
-  const { id } = await response.json();
-  state.questionId = id;
-  subscribe(id);
 }
 
 function updateCounter() {
@@ -538,6 +547,8 @@ els.query.addEventListener('keydown', (event) => {
     ask();
   }
 });
+
+els.send.addEventListener('click', () => ask());
 
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;

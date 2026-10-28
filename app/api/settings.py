@@ -54,6 +54,10 @@ class VotingPayload(BaseModel):
     policy: str
 
 
+class SearchPayload(BaseModel):
+    provider: str = Field(min_length=1, max_length=32)
+
+
 def _catalog_with_availability(config, creds: dict[str, str]):  # noqa: ANN001, ANN202
     """可选模型 = 用户自己配了 key 的 provider。"""
     return [
@@ -249,6 +253,67 @@ class CredentialPayload(BaseModel):
     api_key: str = Field(min_length=8, max_length=256)
 
 
+def _credential_names(config) -> set[str]:  # noqa: ANN001
+    """允许保存 key 的名字：模型服务商 + 检索后端自带的凭据（如 tavily）。"""
+    names = set(config.providers)
+    for option in config.search.options:
+        names.add(option.credential_name)
+    return names
+
+
+def _search_payload(db: Session, user: User) -> dict:
+    config = get_agents_config()
+    creds = user_credentials(db, user.id)
+    rows = {row.provider: row for row in credential_rows(db, user.id)}
+
+    options = []
+    for option in config.search.options:
+        credential = option.credential_name
+        row = rows.get(credential)
+        options.append(
+            {
+                "key": option.key,
+                "label": option.label or option.key,
+                "note": option.note,
+                "kind": option.kind,
+                "credential": credential,
+                # standalone 的凭据不来自模型服务商，需要单独给一个输入框
+                "standalone": credential not in config.providers,
+                "configured": bool(creds.get(credential)),
+                "hint": row.hint if row else "",
+            }
+        )
+
+    choice = user.search_provider or config.search.provider
+    if not any(option["key"] == choice for option in options):
+        choice = options[0]["key"] if options else ""
+    return {"choice": choice, "default": config.search.provider, "options": options}
+
+
+@router.get("/search")
+def get_search_settings(request: Request, db: Session = Depends(get_db)) -> dict:
+    return _search_payload(db, cast(User, request.state.user))
+
+
+@router.put("/search")
+def put_search_settings(
+    payload: SearchPayload, request: Request, db: Session = Depends(get_db)
+) -> dict:
+    config = get_agents_config()
+    keys = {option.key for option in config.search.options}
+    if payload.provider not in keys:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "unknown_search_provider", "message": "未知の検索元です"},
+        )
+
+    user = cast(User, request.state.user)
+    row = db.get(User, user.id)
+    row.search_provider = payload.provider
+    db.commit()
+    return _search_payload(db, row)
+
+
 def _provider_payload(db: Session, user: User) -> dict:
     config = get_agents_config()
     creds = user_credentials(db, user.id)
@@ -282,7 +347,7 @@ def put_provider(
 ) -> dict:
     user = cast(User, request.state.user)
     config = get_agents_config()
-    if payload.provider not in config.providers:
+    if payload.provider not in _credential_names(config):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": "unknown_provider", "message": "未知的服务商"},

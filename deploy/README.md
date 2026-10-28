@@ -86,8 +86,9 @@ models:
 模型 ID 各家会变，填之前先 `curl <base_url>/models` 核对。
 
 旧版的 `DEEPSEEK_API_KEY` / `TAVILY_API_KEY` 环境变量**已经不再读取**，`/etc/magi/magi.env`
-里留着只为兼容旧部署，可以删。检索默认走 DeepSeek 的 search（共用用户自己的模型 key），
-需要退回 Tavily 时改 `config/agents.yaml` 的 `search.provider` 并配 `TAVILY_API_KEY`。
+里留着只为兼容旧部署，可以删。检索同样是按用户选的：「設 定 → 検 索」里挑
+DeepSeek 検索（共用模型 key）/ Tavily（单独填 key）/ 不检索，可选项定义在
+`config/agents.yaml` 的 `search.options`，加一段就多一个后端，`kind: none` 表示不检索。
 
 ## 4. 签证书、切 HTTPS
 
