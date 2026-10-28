@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MAGI — 設定</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; background: #05070a; color: #c8b28a;
+      font-family: 'Lucida Console', ui-monospace, monospace;
+    }
+    header {
+      display: flex; align-items: center; gap: 16px;
+      padding: 10px 16px; border-bottom: 2px solid #ff8d00; background: #0a0602;
+    }
+    header a { color: #ff8d00; text-decoration: none; }
+    header a:hover { text-decoration: underline; }
+    header h1 { margin: 0; font-size: 14px; font-weight: normal; color: #ff8d00; letter-spacing: .35em; }
+    header .who { margin-left: auto; font-size: 12px; color: #6b573a; }
+
+    main { max-width: 780px; margin: 24px auto 64px; padding: 0 16px; }
+    .hint { font-size: 12px; color: #6b573a; margin: 0 0 16px; line-height: 1.8; }
+
+    h2 {
+      font-size: 12px; font-weight: normal; color: #ff8d00; letter-spacing: .3em;
+      margin: 30px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #2a1a08;
+    }
+    h2:first-of-type { margin-top: 0; }
+
+    .row {
+      display: grid; grid-template-columns: 180px 1fr; gap: 12px; align-items: center;
+      padding: 14px 12px; border: 1px solid #2a1a08; margin-bottom: 10px; background: #0a0602;
+    }
+    .row .name { color: #ff8d00; letter-spacing: .12em; }
+    .row .sub { font-size: 11px; color: #6b573a; margin-top: 3px; line-height: 1.6; }
+
+    select, input[type="number"] {
+      padding: 7px 8px; background: #120a03; color: #c8b28a;
+      border: 1px solid #3a2410; font-family: inherit; font-size: 13px;
+    }
+    select { width: 100%; }
+    select:focus, input[type="number"]:focus { outline: none; border-color: #ff8d00; }
+    select option:disabled { color: #4a3a24; }
+
+    .cap-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .cap-line input[type="number"] { width: 110px; text-align: right; color: #ff8d00; }
+    .cap-line .unit { font-size: 11px; color: #8a7350; }
+    .cap-line .note { font-size: 11px; color: #6b573a; }
+
+    .actions { display: flex; gap: 10px; margin-top: 14px; }
+    button.primary, button.secondary {
+      background: #1f1203; border: 1px solid #ff8d00; color: #ff8d00;
+      font-family: inherit; padding: 7px 18px; cursor: pointer; letter-spacing: .15em;
+    }
+    button.primary:hover:not(:disabled) { background: #ff8d00; color: #05070a; }
+    button.primary:disabled { opacity: .45; cursor: default; }
+    button.secondary { border-color: #4a3a24; color: #8a7350; }
+    button.secondary:hover:not(:disabled) { background: #2a1a08; color: #c8b28a; }
+
+    .msg { margin-top: 10px; font-size: 12px; min-height: 16px; color: #52e691; }
+    .msg.err { color: #a41413; }
+  </style>
+</head>
+<body>
+<header>
+  <a href="/">← MAGI</a>
+  <h1>設 定</h1>
+  <span class="who" id="who"></span>
+</header>
+
+<main>
+  <h2>人 格 モ デ ル</h2>
+  <p class="hint">
+    各人格が接続するモデルを個別に選択できます。この設定はあなたのアカウントにのみ適用され、
+    他の利用者には影響しません。指定できるのは運用側が用意したモデルのみです
+    （API キーは利用者ごとには扱いません）。
+  </p>
+  <div id="agents"></div>
+  <div class="actions">
+    <button id="save-agents" class="primary" type="button">保 存</button>
+    <button id="reset-agents" class="secondary" type="button">既定に戻す</button>
+  </div>
+  <div class="msg" id="msg-agents" role="status"></div>
+
+  <h2>答 申</h2>
+  <p class="hint">
+    三台それぞれが返す回答の長さと、考える深さです。どちらも次の質問から反映されます。
+    思考強度を上げるほど根拠が厚くなりますが、待ち時間と費用も増えます。
+  </p>
+
+  <div class="row">
+    <div>
+      <div class="name">出 力 上 限</div>
+      <div class="sub">1 票あたりの天井。<br>実際の長さは内容で変わる。</div>
+    </div>
+    <div class="cap-line">
+      <input id="maxtokens" type="number" step="128">
+      <span class="unit">token / 票</span>
+      <span class="note" id="cap-note"></span>
+    </div>
+  </div>
+
+  <div class="row">
+    <div>
+      <div class="name">思 考 強 度</div>
+      <div class="sub">高いほど深く考える。<br>低なら数秒、最高なら数十秒かかることも。</div>
+    </div>
+    <div>
+      <select id="effort"></select>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button id="save-answer" class="primary" type="button">保 存</button>
+  </div>
+  <div class="msg" id="msg-answer" role="status"></div>
+
+  <h2>判 定 ル ー</h2>
+  <p class="hint">
+    三台の票をどう束ねるかです。この設定はあなたのアカウントにのみ適用されます。
+    <br>一票否決は原作の挙動、多数決は通常の議事ルールに近い挙動です。
+  </p>
+
+  <div class="row">
+    <div>
+      <div class="name">ル ー ル</div>
+      <div class="sub">反対 1 票で否決するか、<br>賛成多数で可決するか。</div>
+    </div>
+    <div>
+      <select id="policy"></select>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button id="save-voting" class="primary" type="button">保 存</button>
+  </div>
+  <div class="msg" id="msg-voting" role="status"></div>
+</main>
+
+<script>
+let csrf = null;
+let modelState = { agents: [], options: [] };
+let answerState = { max_tokens: 2000, reasoning_effort: 'low', efforts: [], limits: { min: 256, max: 8000 } };
+
+function setMsg(id, text, isError) {
+  const node = document.getElementById(id);
+  node.textContent = text || '';
+  node.classList.toggle('err', Boolean(isError));
+}
+
+// --- 人格モデル ------------------------------------------------------------
+
+function buildRow(agent) {
+  const row = document.createElement('div');
+  row.className = 'row';
+
+  const left = document.createElement('div');
+  const name = document.createElement('div');
+  name.className = 'name';
+  name.textContent = agent.display;
+  const sub = document.createElement('div');
+  sub.className = 'sub';
+  sub.textContent = agent.custom ? '独自設定' : '既定';
+  left.append(name, sub);
+
+  const select = document.createElement('select');
+  select.dataset.agent = agent.id;
+  modelState.options.forEach((option) => {
+    const opt = document.createElement('option');
+    opt.value = `${option.provider}|${option.model}`;
+    opt.textContent = option.available ? option.label : `${option.label}（未設定）`;
+    opt.disabled = !option.available;
+    if (option.provider === agent.provider && option.model === agent.model) opt.selected = true;
+    select.appendChild(opt);
+  });
+
+  row.append(left, select);
+  return row;
+}
+
+function renderAgents(data) {
+  modelState = data;
+  const host = document.getElementById('agents');
+  host.textContent = '';
+  data.agents.forEach((agent) => host.appendChild(buildRow(agent)));
+}
+
+async function saveAgents() {
+  const agents = {};
+  document.querySelectorAll('select[data-agent]').forEach((select) => {
+    const [provider, model] = select.value.split('|');
+    agents[select.dataset.agent] = { provider, model };
+  });
+
+  const button = document.getElementById('save-agents');
+  button.disabled = true;
+  setMsg('msg-agents', '');
+  try {
+    const response = await fetch('/api/settings/agents', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      body: JSON.stringify({ agents }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      setMsg('msg-agents', (data.error && data.error.message) || '保存に失敗しました', true);
+      return;
+    }
+    renderAgents(await response.json());
+    setMsg('msg-agents', '保存しました。次の質問から反映されます。');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function resetAgents() {
+  const button = document.getElementById('reset-agents');
+  button.disabled = true;
+  setMsg('msg-agents', '');
+  try {
+    const response = await fetch('/api/settings/agents', {
+      method: 'DELETE',
+      headers: { 'X-CSRF-Token': csrf },
+    });
+    if (!response.ok) { setMsg('msg-agents', 'リセットに失敗しました', true); return; }
+    renderAgents(await response.json());
+    setMsg('msg-agents', '既定に戻しました。');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// --- 答申 ------------------------------------------------------------------
+
+function renderAnswer(data) {
+  answerState = { ...answerState, ...data };
+
+  const input = document.getElementById('maxtokens');
+  input.min = String(data.limits.min);
+  input.max = String(data.limits.max);
+  input.value = String(data.max_tokens);
+
+  const select = document.getElementById('effort');
+  select.textContent = '';
+  data.efforts.forEach((effort) => {
+    const opt = document.createElement('option');
+    opt.value = effort.key;
+    opt.textContent = `${effort.key.toUpperCase()} — ${effort.label}`;
+    if (effort.key === data.reasoning_effort) opt.selected = true;
+    select.appendChild(opt);
+  });
+
+  updateNote();
+}
+
+function updateNote() {
+  const input = document.getElementById('maxtokens');
+  const value = Number(input.value) || answerState.default_max_tokens || 2000;
+  const note = document.getElementById('cap-note');
+  const isDefault = value === (answerState.default_max_tokens || 2000);
+  note.textContent = isDefault ? '（既定）' : '';
+}
+
+async function saveAnswer() {  const button = document.getElementById('save-answer');
+  button.disabled = true;
+  setMsg('msg-answer', '');
+  try {
+    const response = await fetch('/api/settings/answer', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      body: JSON.stringify({
+        max_tokens: Number(document.getElementById('maxtokens').value),
+        reasoning_effort: document.getElementById('effort').value,
+      }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      setMsg('msg-answer', (data.error && data.error.message) || '保存に失敗しました', true);
+      return;
+    }
+    renderAnswer(await response.json());
+    setMsg('msg-answer', '保存しました。次の質問から反映されます。');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// --- 判定ルール ------------------------------------------------------------
+
+function renderVoting(data) {
+  const select = document.getElementById('policy');
+  select.textContent = '';
+  data.policies.forEach((policy) => {
+    const opt = document.createElement('option');
+    opt.value = policy.key;
+    opt.textContent = policy.label;
+    if (policy.key === data.policy) opt.selected = true;
+    select.appendChild(opt);
+  });
+}
+
+async function saveVoting() {
+  const button = document.getElementById('save-voting');
+  button.disabled = true;
+  setMsg('msg-voting', '');
+  try {
+    const response = await fetch('/api/settings/voting', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      body: JSON.stringify({ policy: document.getElementById('policy').value }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      setMsg('msg-voting', (data.error && data.error.message) || '保存に失敗しました', true);
+      return;
+    }
+    renderVoting(await response.json());
+    setMsg('msg-voting', '保存しました。次の質問から反映されます。');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.getElementById('save-voting').addEventListener('click', saveVoting);
+
+document.getElementById('maxtokens').addEventListener('input', updateNote);
+
+document.getElementById('save-agents').addEventListener('click', saveAgents);
+document.getElementById('reset-agents').addEventListener('click', resetAgents);
+document.getElementById('save-answer').addEventListener('click', saveAnswer);
+
+async function boot() {
+  const me = await fetch('/api/me');
+  if (!me.ok) { location.replace('/login'); return; }
+  const meData = await me.json();
+  csrf = meData.csrf_token;
+  document.getElementById('who').textContent = meData.user.username;
+
+  const [agentsRes, answerRes, votingRes] = await Promise.all([
+    fetch('/api/settings/agents'),
+    fetch('/api/settings/answer'),
+    fetch('/api/settings/voting'),
+  ]);
+  if (agentsRes.ok) renderAgents(await agentsRes.json());
+  if (answerRes.ok) renderAnswer(await answerRes.json());
+  if (votingRes.ok) renderVoting(await votingRes.json());
+}
+
+boot();
+</script>
+</body>
+</html>

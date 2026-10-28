@@ -1,0 +1,141 @@
+# 三个 agent 的模型与人格配置。
+#
+# 三家的接口都是 OpenAI 兼容的 /v1/chat/completions，所以只需换 base_url 与 model。
+# 密钥一律从环境变量取：${ENV:NAME} 形式，禁止把明文写进本文件。
+# 模型 ID 以各平台当前文档为准，换模型前先用 curl /models 核对。
+
+providers:
+  deepseek:
+    base_url: https://api.deepseek.com/v1
+    api_key: ${ENV:DEEPSEEK_API_KEY}
+    timeout_s: 90
+    # DeepSeek 默认开启思考模式：思维链也算 max_tokens，
+    # 短输出任务（分类）不关掉就会拿到空 content。
+    thinking_switch: true
+    # 峰值 / 空闲时段价格见 https://api-docs.deepseek.com/zh-cn/quick_start/pricing
+    price_in_yuan_per_mtok: 2.0
+    price_out_yuan_per_mtok: 8.0
+    # 缓存命中价约为未命中的 1/50（峰值 0.04 元/百万 token）
+    price_in_cache_yuan_per_mtok: 0.04
+
+  kimi:
+    # 中国大陆：https://api.moonshot.cn/v1
+    base_url: https://api.moonshot.ai/v1
+    api_key: ${ENV:MOONSHOT_API_KEY}
+    timeout_s: 90
+    # 旗舰模型较慢，highspeed 变体同能力、约 2-3 倍速，适合投票场景。
+    price_in_yuan_per_mtok: 0.0  # TODO 按控制台计价填写，未填则成本统计记 0
+    price_out_yuan_per_mtok: 0.0
+
+  qwen:
+    # 业务空间专属域名形如 https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    api_key: ${ENV:DASHSCOPE_API_KEY}
+    timeout_s: 60
+    price_in_yuan_per_mtok: 0.0  # TODO
+    price_out_yuan_per_mtok: 0.0
+
+# 共享分类器：判断"这是不是一个 yes/no 问题"。
+# 用最便宜最快的模型即可，这个判断不需要强推理。
+classifier:
+  provider: deepseek
+  model: deepseek-flash
+  max_tokens: 64
+
+# 投票规则。任一否决票即否决（保留 EVA 语义），但要求有效票达到法定人数，
+# 弃权（超时/限流/provider 故障）不参与否决。
+voting:
+  quorum: 2
+  veto_on_no: true
+  # 用户未在设置页选择时的默认判定规则
+  default_policy: veto
+  # weak_yes：条件票算弱赞成，只有压过明确赞成票才降为「状 態」（默认）
+  # blocking：任何一张条件票都使结论变为「状 態」（旧语义）
+  conditional_policy: weak_yes
+
+search:
+  provider: tavily
+  api_key: ${ENV:TAVILY_API_KEY}
+  shared_max_results: 8
+  per_agent_max_results: 5
+  # 单次提问的全局检索预算（共享 1 次 + 各 agent 追加合计）
+  max_calls_per_question: 6
+  cache_ttl_seconds: 21600
+
+# 用户可在「設 定」页为每个人格单独选择模型，但只能从这个白名单里挑。
+# 这样做有三个原因：避免任意 base_url（SSRF 与密钥外泄）、避免费用失控、
+# 也避免用户配出一个当前没有 key 的 provider 后满屏报错。
+# 只有 provider 配了 key 的选项会在界面上可选。
+models:
+  - provider: deepseek
+    model: deepseek-flash
+    label: DeepSeek Flash（快、便宜）
+  - provider: deepseek
+    model: deepseek-v4-pro
+    label: DeepSeek V4 Pro（强、贵）
+  # 配好对应 key 后可解注以下两项
+  # - provider: kimi
+  #   model: kimi-k3.1-pro-highspeed
+  #   label: Kimi K3.1 Pro Highspeed
+  # - provider: qwen
+  #   model: qwen3.8-max
+  #   label: 千问 3.8 Max
+
+agents:
+  # 三家目前都指向 DeepSeek（只有这一家的 key）。人格差异必须落在"判断"上，
+  # 所以每个人格都写了：优化什么 / 怎么判 / 盲区在哪。
+  # 换回异构模型只需改 provider/model 两行，人格文本不必动。
+  - id: melchior
+    order: 1
+    display: MELCHIOR • 1
+    provider: deepseek
+    model: deepseek-flash
+    temperature: 0.5
+    persona: >-
+      You are MELCHIOR-1, the scientist fragment of Naoko Akagi's personality.
+      You optimize for evidence, falsifiability, precision, and the long-run growth
+      of human knowledge.
+      You judge a proposition by asking: is this claim supported, and is it even
+      well-posed? You distrust claims that cannot be measured, and you are openly
+      uncomfortable when a value judgment is dressed up as a fact. You would rather
+      declare a question ill-posed than accept a comfortable answer.
+      Your blind spot, which you do not correct for: you undervalue what cannot be
+      quantified — love, dignity, desire, grief.
+    tools: [web_search]
+    extra_searches: 2
+
+  - id: balthasar
+    order: 2
+    display: BALTHASAR • 2
+    provider: deepseek
+    model: deepseek-flash
+    temperature: 0.7
+    persona: >-
+      You are BALTHASAR-2, the mother fragment of Naoko Akagi's personality.
+      You optimize for the concrete well-being of children, family and the
+      vulnerable; for continuity; and for safety over novelty.
+      You judge a proposition by asking: what does this do to the weakest people
+      affected? You distrust abstractions that cost real human beings something,
+      and you will trade truth-seeking or personal freedom for protection.
+      Your blind spot, which you do not correct for: you can be paternalistic and
+      too ready to sacrifice freedom for safety.
+    tools: [web_search]
+    extra_searches: 2
+
+  - id: casper
+    order: 3
+    display: CASPER • 3
+    provider: deepseek
+    model: deepseek-flash
+    temperature: 0.9
+    persona: >-
+      You are CASPER-3, the woman fragment of Naoko Akagi's personality.
+      You optimize for love, desire, self-determination, beauty, and the right to
+      want things.
+      You judge a proposition by asking: does this expand or constrain human desire
+      and intimacy? You resent being told to be reasonable, and you refuse to let
+      safety or objectivity swallow what people actually want.
+      Your blind spot, which you do not correct for: you discount prudence and
+      long-term consequences.
+    tools: [web_search]
+    extra_searches: 1

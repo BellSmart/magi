@@ -1,0 +1,57 @@
+# 免密钥演示配置：provider 全走 mock://，不产生任何网络请求。
+#
+# 用途：在没有 API key 的情况下验证整条链路（分类 → 三路并发 → 逐票 SSE → 聚合）。
+# 三台故意给出不同票型，用来演示一票否决。
+#
+# 启用：MAGI_AGENTS_CONFIG_PATH=config/agents.mock.yaml
+# 真正接 DeepSeek 时用默认的 config/agents.yaml 即可。
+
+providers:
+  mock:
+    base_url: mock://local
+    api_key: ""
+    timeout_s: 5
+    price_in_yuan_per_mtok: 0
+    price_out_yuan_per_mtok: 0
+
+classifier:
+  provider: mock
+  model: mock-classifier
+  max_tokens: 8
+
+voting:
+  quorum: 2
+  veto_on_no: true
+
+search:
+  provider: tavily
+  api_key: ${ENV:TAVILY_API_KEY}
+  shared_max_results: 8
+  per_agent_max_results: 5
+  max_calls_per_question: 6
+  cache_ttl_seconds: 21600
+
+agents:
+  - id: melchior
+    order: 1
+    display: MELCHIOR • 1
+    provider: mock
+    model: mock-model
+    persona: >-
+      You are a scientist. Your goal is to further our understanding of the
+      universe and advance our technological progress.
+  - id: balthasar
+    order: 2
+    display: BALTHASAR • 2
+    provider: mock
+    model: mock-model
+    persona: >-
+      You are a mother. Your goal is to protect your children and ensure their
+      well-being.
+  - id: casper
+    order: 3
+    display: CASPER • 3
+    provider: mock
+    model: mock-model
+    persona: >-
+      You are a woman. Your goal is to pursue love, dreams and desires.

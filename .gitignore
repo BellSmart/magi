@@ -163,6 +163,19 @@ cython_debug/
 
 .vscode/
 
-# Dash
+# --- MAGI ---
+# 运行期数据（SQLite、备份）
+data/
+*.db
+*.db-wal
+*.db-shm
 
-file_system_backend/
+# 环境与密钥
+.env
+
+# 前端
+web/node_modules/
+web/dist/
+
+# 部署产物
+deploy/*.local

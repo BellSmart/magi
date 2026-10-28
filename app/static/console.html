@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MAGI</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    /* 始终为页面滚动条预留槽位：否则内容一旦超过一屏，滚动条出现→宽度变窄→
+       .magi 的 aspect-ratio 高度随之变化→总高度又缩回→滚动条消失，来回震荡。 */
+    html { scrollbar-gutter: stable; }
+
+    /* 履歴の記録を主画面に読み込んだときの帯 */
+    .banner {
+      display: flex; align-items: center; gap: 12px;
+      border: 2px solid #ff8d00; background: #1a0f03; color: #ff8d00;
+      font-family: 'Lucida Console', monospace; font-size: 12px;
+      padding: 6px 10px; margin-bottom: 8px; letter-spacing: .08em;
+    }
+    .banner a {
+      margin-left: auto; color: #ff8d00; text-decoration: none;
+      border: 1px solid #8a4a08; padding: 2px 10px;
+    }
+    .banner a:hover { background: #ff8d00; color: #05070a; }
+    .banner[hidden] { display: none; }
+
+    /* 只补上游样式没覆盖到的交互件，其余复用 style.css */
+    .input-container { row-gap: 6px; align-items: start; }
+    /* 编辑器用镜像层测高，绝不再对 textarea 做 auto → scrollHeight 的塌陷式测量：
+       那会让页面每次按键先变矮再变高，滚动位置被钳制后不会恢复，表现为页面抖动。 */
+    .input-container > .editor { grid-column: 2; position: relative; }
+    .editor > textarea,
+    .editor > .mirror {
+      width: 100%; box-sizing: border-box;
+      font-family: 'Lucida Console', monospace; font-size: 13px; line-height: 1.6;
+      padding: 8px 10px; border: 2px solid #ff8d00;
+      white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
+    }
+    .editor > textarea {
+      display: block; height: 76px; min-height: 76px; resize: none;
+      background: #1f1203; color: #ff8d00;
+      /* 始终预留滚动条槽位，和镜像层宽度保持一致，避免换行位置变化引起高度跳一格 */
+      overflow-y: auto; scrollbar-gutter: stable;
+    }
+    .editor > textarea:focus { outline: none; border-color: #ffb347; }
+    .editor > .mirror {
+      position: absolute; top: 0; left: 0; z-index: -1;
+      visibility: hidden; pointer-events: none; border-color: transparent;
+      overflow-y: scroll;
+    }
+    .input-container > .editor-meta {
+      grid-column: 2; display: flex; justify-content: space-between;
+      font-size: 11px; color: #7a5a2a; font-family: 'Lucida Console', monospace;
+    }
+    .input-container > .editor-meta .over { color: #a41413; }
+    .settings-link {
+      color: #8a7350; font-size: 11px; text-decoration: none;
+      border-bottom: 1px dotted #4a3a24;
+    }
+    .settings-link:hover { color: #ff8d00; border-bottom-color: #ff8d00; }
+    .input-container > .actions {
+      grid-column: 2; display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px;
+    }
+    .input-container > .actions button,
+    .input-container > .actions a {
+      background: #1f1203; border: 2px solid #ff8d00; color: #ff8d00;
+      font-family: 'Lucida Console', monospace; cursor: pointer; padding: 2px 12px;
+      text-decoration: none; font-size: 13px; line-height: 1.6;
+    }
+    .input-container > .actions button:hover,
+    .input-container > .actions a:hover { background: #ff8d00; color: #05070a; }
+
+    .sources {
+      margin-top: 12px; padding-top: 8px; border-top: 1px solid #3a2a10;
+      color: #b46a00; font-family: 'Lucida Console', monospace; font-size: 12px;
+      max-height: 30vh; overflow: auto;
+    }
+    .sources-title { letter-spacing: .3em; color: #ff8d00; margin-bottom: 6px; }
+    .sources ol { margin: 0; padding-left: 22px; }
+    .sources li { margin-bottom: 5px; }
+    .sources a { color: #ff8d00; text-decoration: none; }
+    .sources a:hover { text-decoration: underline; }
+    .sources .snippet { display: block; color: #7a5a2a; }
+
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.72); z-index: 30; }
+    .modal { max-width: 70%; max-height: 70%; overflow: auto; z-index: 31; }
+    .modal > .modal-body { grid-template-columns: max-content 1fr; row-gap: 6px; }
+    .modal .value { white-space: pre-wrap; word-break: break-word; }
+    .modal .key { color: #b46a00; }
+  </style>
+</head>
+<body>
+<div class="system">
+  <div class="banner" id="banner" hidden>
+    <span id="banner-text"></span>
+    <a href="/" id="banner-close">閉 じ る</a>
+  </div>
+  <div class="magi">
+    <div class="connection casper-balthasar"></div>
+    <div class="connection casper-melchior"></div>
+    <div class="connection balthasar-melchior"></div>
+
+    <div class="header left"><hr><hr><span>質 問</span><hr><hr></div>
+    <div class="header right"><hr><hr><span>解 決</span><hr><hr></div>
+
+    <div class="system-status">
+      <div>CODE:473</div>
+      <div>FILE:MAGI_SYS</div>
+      <div id="extention">EXTENTION:????</div>
+      <div id="exmode">EX_MODE:OFF</div>
+      <div id="priority">PRIORITY:AAA</div>
+    </div>
+
+    <div class="wise-man melchior" data-agent="melchior"><div class="inner">MELCHIOR • 1</div></div>
+    <div class="wise-man balthasar" data-agent="balthasar"><div class="inner">BALTHASAR • 2</div></div>
+    <div class="wise-man casper" data-agent="casper"><div class="inner">CASPER • 3</div></div>
+
+    <div class="response"><div class="inner" id="response-inner">情 報</div></div>
+    <div class="title">MAGI</div>
+  </div>
+
+  <div class="input-container">
+    <label for="query">question: </label>
+    <div class="editor">
+      <textarea id="query" rows="3"
+        placeholder="質問 / 提案を入力。長文の貼り付け可（Ctrl+Enter で送信）"></textarea>
+      <div class="mirror" id="mirror" aria-hidden="true"></div>
+    </div>
+    <div class="editor-meta">
+      <span>Enter 改行 ／ Ctrl+Enter 送信</span>
+      <span id="counter" class="counter">0 / 8000</span>
+    </div>
+    <div class="editor-meta">
+      <span id="session"></span>
+      <a class="settings-link" id="answer-profile" href="/settings">答申 …</a>
+    </div>
+    <div class="actions">
+      <button id="rules" type="button">判 定</button>
+      <a href="/history">履 歴</a>
+      <a href="/settings">設 定</a>
+      <button id="logout" type="button">終 了</button>
+    </div>
+  </div>
+
+  <div class="sources" id="sources" hidden>
+    <div class="sources-title">参 考 資 料</div>
+    <ol id="source-list"></ol>
+  </div>
+</div>
+
+<script>
+// 上限由服务端 /api/me 的 limits 覆盖，这里只是初始值。
+let MAX_CHARS = 8000;
+const AGENTS = ['melchior', 'balthasar', 'casper'];
+const WISE_COLOR = {
+  yes: '#52e691',
+  no: '#a41413',
+  info: '#3caee0',
+  conditional: 'repeating-linear-gradient(56deg, rgb(82,230,145) 0px, rgb(82,230,145) 30px, #82cd68 30px, #82cd68 60px)',
+  error: 'black',
+  abstain: '#6b7280',
+  pending: '#ff8d00',
+};
+
+const LABEL = {
+  yes: '合 意', no: '拒 絶', conditional: '状 態',
+  info: '情 報', error: '誤 差', abstain: '棄 権', pending: '待 機',
+};
+
+const VERDICT_COLOR = {
+  yes: '#52e691', no: '#a41413', conditional: '#ff8d00',
+  info: '#3caee0', error: 'gray', abstain: '#6b7280',
+};
+
+const PRIORITY_LETTER = { yes: 'A', no: 'B', conditional: 'C', abstain: 'X', error: 'X', info: 'A' };
+
+const state = { csrf: null, questionId: null, source: null, answers: {}, question: '', votePolicy: 'veto' };
+
+const els = {
+  query: document.getElementById('query'),
+  mirror: document.getElementById('mirror'),
+  answerProfile: document.getElementById('answer-profile'),
+  rules: document.getElementById('rules'),
+  banner: document.getElementById('banner'),
+  bannerText: document.getElementById('banner-text'),
+  counter: document.getElementById('counter'),
+  response: document.getElementById('response-inner'),
+  extention: document.getElementById('extention'),
+  exmode: document.getElementById('exmode'),
+  priority: document.getElementById('priority'),
+  session: document.getElementById('session'),
+  logout: document.getElementById('logout'),
+  sources: document.getElementById('sources'),
+  sourceList: document.getElementById('source-list'),
+};
+
+function wiseMan(agent) {
+  return document.querySelector(`.wise-man[data-agent="${agent}"] > .inner`);
+}
+
+function setVote(agent, status) {
+  const inner = wiseMan(agent);
+  if (!inner) return;
+  inner.textContent = LABEL[status] || LABEL.pending;
+  inner.style.background = WISE_COLOR[status] || WISE_COLOR.pending;
+  inner.classList.remove('flicker');
+}
+
+function setPending() {
+  AGENTS.forEach((agent) => {
+    const inner = wiseMan(agent);
+    inner.textContent = LABEL.pending;
+    inner.style.background = WISE_COLOR.pending;
+    inner.classList.add('flicker');
+  });
+  els.response.textContent = LABEL.info;
+  els.response.style.color = VERDICT_COLOR.info;
+  els.response.style.borderColor = VERDICT_COLOR.info;
+  els.response.classList.add('flicker');
+  els.extention.textContent = 'EXTENTION:????';
+  els.exmode.textContent = 'EX_MODE:OFF';
+  els.priority.textContent = 'PRIORITY:AAA';
+  renderSources([]);
+}
+
+function updatePriority() {
+  const letters = AGENTS.map((agent) => {
+    const answer = state.answers[agent];
+    return PRIORITY_LETTER[answer ? answer.status : 'pending'] || '?';
+  });
+  els.priority.textContent = 'PRIORITY:' + letters.join('');
+}
+
+function finish(status) {
+  const color = VERDICT_COLOR[status] || VERDICT_COLOR.error;
+  els.response.textContent = LABEL[status] || LABEL.error;
+  els.response.style.color = color;
+  els.response.style.borderColor = color;
+  els.response.classList.remove('flicker');
+}
+
+function closeSource() {
+  if (state.source) { state.source.close(); state.source = null; }
+}
+
+function renderSources(results) {
+  els.sourceList.textContent = '';
+  els.sources.hidden = results.length === 0;
+  // 检索结果是外部内容，一律用 textContent 写入，绝不拼 innerHTML。
+  results.forEach((item) => {
+    const li = document.createElement('li');
+    const link = document.createElement('a');
+    link.href = item.url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = item.title || item.url;
+    const snippet = document.createElement('span');
+    snippet.className = 'snippet';
+    snippet.textContent = item.snippet || '';
+    li.appendChild(link);
+    li.appendChild(snippet);
+    els.sourceList.appendChild(li);
+  });
+}
+
+function subscribe(questionId) {
+  closeSource();
+  const source = new EventSource(`/api/questions/${questionId}/stream`);
+  state.source = source;
+
+  source.addEventListener('question.classified', (event) => {
+    const data = JSON.parse(event.data);
+    els.extention.textContent = 'EXTENTION:' + (data.is_yes_no ? '7312' : '3023');
+  });
+
+  source.addEventListener('search.shared', (event) => {
+    const data = JSON.parse(event.data);
+    els.exmode.textContent = 'EX_MODE:' + (data.enabled ? 'ON' : 'OFF');
+    renderSources(data.results || []);
+  });
+
+  source.addEventListener('agent.vote', (event) => {
+    const data = JSON.parse(event.data);
+    state.answers[data.agent] = data;
+    setVote(data.agent, data.status);
+    updatePriority();
+  });
+
+  source.addEventListener('verdict', (event) => {
+    const data = JSON.parse(event.data);
+    finish(data.status);
+  });
+
+  source.addEventListener('error', (event) => {
+    if (!event.data) return;
+    const data = JSON.parse(event.data);
+    els.session.textContent = data.message || '誤差';
+    finish('error');
+  });
+
+  source.addEventListener('done', () => {
+    closeSource();
+    loadQuota();
+  });
+}
+
+async function ask() {
+  const text = els.query.value.trim();
+  if (!text || !state.csrf) return;
+  if (text.length > MAX_CHARS) {
+    els.session.textContent = `超過 ${MAX_CHARS} 字`;
+    return;
+  }
+
+  els.query.value = '';
+  updateCounter();
+  autoGrow();
+  setPending();
+  els.banner.hidden = true;
+  state.answers = {};
+  state.question = text;
+
+  const response = await fetch('/api/questions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': state.csrf },
+    body: JSON.stringify({ text }),
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    els.session.textContent = (data.error && data.error.message) || '送信失敗';
+    finish('error');
+    return;
+  }
+
+  const { id } = await response.json();
+  state.questionId = id;
+  subscribe(id);
+}
+
+function updateCounter() {
+  const length = els.query.value.length;
+  els.counter.textContent = `${length} / ${MAX_CHARS}`;
+  els.counter.classList.toggle('over', length > MAX_CHARS);
+}
+
+const MIN_EDITOR_HEIGHT = 76;
+
+function autoGrow() {
+  const el = els.query;
+  const mirror = els.mirror;
+  if (!mirror) return;
+
+  // 用镜像层量内容高度，全程不动 textarea 自身的高度，
+  // 因此不会出现"塌陷 → 撑开"引发的页面滚动跳动。
+  // 末尾补一个零宽字符，保证最后一行换行时也能被计入高度。
+  mirror.textContent = el.value + '\u200b';
+
+  const max = Math.min(window.innerHeight * 0.38, 420);
+  const height = Math.max(MIN_EDITOR_HEIGHT, Math.min(mirror.offsetHeight, max));
+
+  // 变化不足 1px 就不写样式，避免每帧触发重排。
+  if (Math.abs(el.offsetHeight - height) > 1) {
+    el.style.height = `${height}px`;
+  }
+}
+
+// --- 详情 / 历史 -----------------------------------------------------------
+
+function closeOverlay() {
+  document.querySelectorAll('.overlay').forEach((node) => node.remove());
+}
+
+function openModal(title, rows) {
+  closeOverlay();
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+
+  const header = document.createElement('div');
+  header.className = 'modal-header';
+  const titleNode = document.createElement('div');
+  titleNode.className = 'modal-title';
+  titleNode.textContent = title;
+  const close = document.createElement('div');
+  close.className = 'close';
+  close.textContent = 'X';
+  header.append(titleNode, close);
+
+  const body = document.createElement('div');
+  body.className = 'modal-body';
+  rows.forEach(([key, value]) => {
+    const keyNode = document.createElement('div');
+    keyNode.className = 'key';
+    keyNode.textContent = key;
+    const valueNode = document.createElement('div');
+    valueNode.className = 'value';
+    valueNode.textContent = value;
+    body.append(keyNode, valueNode);
+  });
+
+  modal.append(header, body);
+  overlay.appendChild(modal);
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) closeOverlay(); });
+  close.addEventListener('click', closeOverlay);
+  document.querySelector('.system').appendChild(overlay);
+}
+
+function openAgentModal(agent) {
+  const answer = state.answers[agent];
+  openModal(agent.toUpperCase(), [
+    ['質問', state.question || '—'],
+    ['状態', answer ? (LABEL[answer.status] || answer.status) : '待 機'],
+    ['模型', answer ? `${answer.model}` : '—'],
+    ['遅延', answer && answer.latency_ms != null ? `${answer.latency_ms} ms` : '—'],
+    ['回答', answer && answer.answer ? answer.answer : '—'],
+    ['条件', answer && answer.conditions ? answer.conditions : '—'],
+    ['誤差', answer && answer.error ? answer.error : '—'],
+  ]);
+}
+
+
+// --- 初始化 ---------------------------------------------------------------
+
+document.querySelectorAll('.wise-man').forEach((node) => {
+  node.addEventListener('click', () => openAgentModal(node.dataset.agent));
+});
+
+els.rules.addEventListener('click', () => {
+  const policy = state.votePolicy || 'veto';
+  const policyLine = policy === 'majority'
+    ? '多数決 — 明確な賛成が反対を上回れば 合 意、下回れば 拒 絶。'
+    : '一票否決 — 反対が 1 票でもあれば 拒 絶。';
+  openModal('判 定 の 読 み 方', [
+    ['現在のルール', policyLine + '\n（設 定 → 判 定 ル ー で変更できます）'],
+    ['各台の票', '合 意 ＝ YES（賛成）\n拒 絶 ＝ NO（反対）\n状 態 ＝ CONDITIONAL（条件付き賛成）\n棄 権 ＝ 応答不能（時間切れ・レート制限）'],
+    ['一票否決', '反対（NO）が 1 票でもあれば、全体は 拒 絶 になります。\n多数決ではありません。2 票が賛成でも 1 票の反対で否決です。'],
+    ['多数決', '明確な賛成（YES）と反対（NO）を比べます。\n賛成が多ければ 合 意、反対が多ければ 拒 絶、同数なら 状 態 です。'],
+    ['状 態', '反対がなく、条件付き賛成が明確な賛成と同数以上のとき。\n条件付き票は「弱い賛成」として扱われます。'],
+    ['情 報', 'そもそも是非を問えない入力（説明や意見を求める質問）は\n投票せず、三台の回答をそのまま並べます。'],
+    ['誤 差', '有効票が 2 票未満のとき。棄権や失敗が重なった状態です。'],
+    ['棄 権', '時間切れ・レート制限・接続失敗。\n反対ではないので、否決には数えません。'],
+  ]);
+});
+
+els.query.addEventListener('input', () => {
+  updateCounter();
+  autoGrow();
+});
+
+// 窗口尺寸变化会改变高度上限（min(38vh, 420px)），需要重新夹紧。
+window.addEventListener('resize', autoGrow);
+
+els.query.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    ask();
+  }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  closeOverlay();
+});
+
+els.logout.addEventListener('click', async () => {
+  closeSource();
+  await fetch('/api/auth/logout', {
+    method: 'POST',
+    headers: { 'X-CSRF-Token': state.csrf || '' },
+  });
+  location.replace('/login');
+});
+
+async function loadQuota() {
+  const response = await fetch('/api/me');
+  if (!response.ok) { location.replace('/login'); return; }
+  const data = await response.json();
+  state.csrf = data.csrf_token;
+  if (data.limits && data.limits.max_question_chars) {
+    MAX_CHARS = data.limits.max_question_chars;
+    updateCounter();
+  }
+  els.session.textContent = data.user.username;
+
+  const answer = data.answer || {};
+  const effortLabel = { low: '低', high: '高', max: '最高' }[answer.reasoning_effort] || '低';
+  els.answerProfile.textContent =
+    `答申 ${answer.max_tokens || 2000} token ／ 思考 ${effortLabel}`;
+  state.votePolicy = data.vote_policy || 'veto';
+}
+
+// --- 履歴の記録を主画面に読み込む -------------------------------------------
+
+async function loadRecord(id) {
+  const response = await fetch(`/api/questions/${id}`);
+  if (!response.ok) return;
+  const data = await response.json();
+
+  els.query.value = data.text || '';
+  updateCounter();
+  autoGrow();
+
+  state.question = data.text || '';
+  state.answers = {};
+
+  (data.runs || []).forEach((run) => {
+    state.answers[run.agent] = {
+      status: run.status,
+      answer: run.answer,
+      conditions: run.conditions,
+      error: run.error,
+      latency_ms: run.latency_ms,
+      model: run.model,
+    };
+    setVote(run.agent, run.status);
+  });
+  updatePriority();
+
+  finish(data.status === 'processing' ? 'info' : data.status);
+  els.extention.textContent = 'EXTENTION:' + (data.form === 'none' ? '3023' : '7312');
+  els.exmode.textContent = 'EX_MODE:' + ((data.sources || []).length ? 'ON' : 'OFF');
+  renderSources(data.sources || []);
+
+  const when = new Date(data.created_at).toLocaleString();
+  els.bannerText.textContent =
+    `履 歴 表 示 中 — ${when} ／ ${LABEL[data.status] || data.status}`;
+  els.banner.hidden = false;
+}
+
+updateCounter();
+autoGrow();
+(async () => {
+  await loadQuota();
+  const viewId = new URLSearchParams(location.search).get('view');
+  if (viewId) loadRecord(viewId);
+})();
+</script>
+</body>
+</html>

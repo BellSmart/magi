@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# MAGI 账号管理命令的包装器：自动载入生产环境变量，并以 magi 用户身份运行。
+#
+# 直接用 root 跑 app.cli 会在 /var/lib/magi 下创建 root 拥有的 SQLite 文件，
+# 之后应用（以 magi 运行）就写不进去了——所以这里强制降权。
+
+set -euo pipefail
+
+[ -r /etc/magi/magi.env ] || { echo "缺少 /etc/magi/magi.env，请先运行 deploy/install.sh" >&2; exit 1; }
+
+if [ "$(id -u)" -eq 0 ]; then
+    exec runuser -u magi -- "$0" "$@"
+fi
+
+set -a
+# shellcheck disable=SC1091
+. /etc/magi/magi.env
+set +a
+
+cd /opt/magi
+exec .venv/bin/python -m app.cli "$@"

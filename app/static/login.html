@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MAGI — 認証</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center;
+      background: #05070a; color: #c8d6e5;
+      font-family: "Courier New", ui-monospace, monospace;
+      letter-spacing: .08em;
+    }
+    form {
+      width: min(92vw, 360px); padding: 28px 24px;
+      border: 1px solid #2c3e50; background: #0a0f14;
+      box-shadow: 0 0 0 1px #111823, 0 0 40px rgba(60, 174, 224, .08);
+    }
+    h1 {
+      margin: 0 0 4px; font-size: 18px; font-weight: 400;
+      color: #ff8d00; letter-spacing: .3em;
+    }
+    .sub { margin: 0 0 22px; font-size: 11px; color: #52616b; }
+    label { display: block; margin-bottom: 6px; font-size: 11px; color: #7f8c8d; }
+    input {
+      width: 100%; padding: 9px 10px; margin-bottom: 16px;
+      background: #05070a; border: 1px solid #2c3e50; color: #c8d6e5;
+      font-family: inherit; font-size: 13px; letter-spacing: .05em;
+    }
+    input:focus { outline: none; border-color: #3caee0; }
+    button {
+      width: 100%; padding: 10px; cursor: pointer;
+      background: #10181f; border: 1px solid #3caee0; color: #3caee0;
+      font-family: inherit; font-size: 13px; letter-spacing: .2em;
+    }
+    button:hover:not(:disabled) { background: #3caee0; color: #05070a; }
+    button:disabled { opacity: .5; cursor: wait; }
+    #msg { min-height: 18px; margin-top: 14px; font-size: 12px; color: #a41413; }
+  </style>
+</head>
+<body>
+  <form id="login" autocomplete="on">
+    <h1>MAGI</h1>
+    <p class="sub">MAGI_SYS // 認証が必要</p>
+    <label for="username">USER</label>
+    <input id="username" name="username" autocomplete="username" required autofocus>
+    <label for="password">PASSCODE</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button type="submit">接 続</button>
+    <div id="msg" role="alert"></div>
+  </form>
+
+  <script>
+    const form = document.getElementById('login');
+    const msg = document.getElementById('msg');
+    const button = form.querySelector('button');
+    const next = new URLSearchParams(location.search).get('next');
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      msg.textContent = '';
+      button.disabled = true;
+      try {
+        const response = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: document.getElementById('username').value,
+            password: document.getElementById('password').value,
+          }),
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          msg.textContent = (data.error && data.error.message) || '接続失敗';
+          return;
+        }
+        // 只接受站内相对路径，避免被 next 参数带去外站。
+        const target = next && next.startsWith('/') && !next.startsWith('//') ? next : '/';
+        location.replace(target);
+      } catch (error) {
+        msg.textContent = '通信エラー';
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

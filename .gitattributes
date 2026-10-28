@@ -1,0 +1,14 @@
+# 部署脚本必须保持 LF，否则在 Linux 上会因 \r 导致 shebang 失效。
+*.sh text eol=lf
+deploy/* text eol=lf
+*.toml text eol=lf
+.env.example text eol=lf
+.gitattributes text eol=lf
+
+# 前端与配置按 LF 存储
+*.py text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
