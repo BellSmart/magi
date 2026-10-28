@@ -1,10 +1,11 @@
 # 部署到 Ubuntu
 
-面向 Ubuntu 22.04 / 24.04，单机。整套东西由三个文件组成：
+面向 Ubuntu 22.04 / 24.04，单机。整套东西由四个文件组成：
 
 | 文件 | 作用 |
 |---|---|
-| `deploy/install.sh` | 建用户、装依赖、同步代码、建 venv、写 systemd、配 nginx（HTTP 引导态） |
+| `deploy/install.sh` | 首次安装：建用户、装依赖、同步代码、建 venv、写 systemd、配 nginx（HTTP 引导态） |
+| `deploy/update.sh` | 增量更新：备份数据库、同步代码、按需重装依赖、重启并自检（见「日常运维」） |
 | `deploy/enable-tls.sh` | 签 Let's Encrypt 的 **IP 证书**，把 nginx 切到 HTTPS |
 | `deploy/magi-cli` | 账号管理命令的包装器，自动载入 `/etc/magi/magi.env` 并降权到 `magi` |
 
@@ -21,7 +22,7 @@ Internet ──443──► nginx（TLS、SSE 不缓冲）──► 127.0.0.1:80
 
 - 一台有**公网 IPv4** 的 Ubuntu，能 root
 - 80 与 443 端口对外可达（IP 证书的校验与续期都依赖 80）
-- 一个 DeepSeek API key；Tavily key 可选（不给就不检索）
+- **不需要**厂商 API key：服务端不保存密钥，每个用户登录后填自己的（见第 3 步）
 - **没有域名**也能跑：证书签给 IP 本身
 
 ## 1. 把代码送上去
@@ -55,13 +56,17 @@ sudo bash deploy/install.sh
 建 venv 并 `pip install -e` → 生成 `/etc/magi/magi.env`（含随机 `MAGI_SECRET_KEY`）→
 装 `magi.service` 并启动 → 写 nginx 引导配置（此时除 ACME 校验外一律 503）。
 
-## 3. 填 API key
+## 3. 让用户填自己的 API key
 
-```bash
-sudo nano /etc/magi/magi.env     # DEEPSEEK_API_KEY / TAVILY_API_KEY
-sudo systemctl restart magi
-journalctl -u magi -n 20 --no-pager | grep -i provider   # 缺 key 会在这里点名
-```
+服务端不保存任何厂商密钥。建好账号后，让每个用户登录 → 点「設 定」→ 在
+「A P I キ ー」里粘贴自己的 DeepSeek / Kimi / 千問 key：key 按用户 AES-GCM
+加密存库，加密密钥由 `MAGI_SECRET_KEY` 经 HKDF 派生，界面上只回显尾部几位。
+
+没填 key 就提问会返回 `400 missing_credentials`，这是预期行为，不是部署失败。
+
+旧版的 `DEEPSEEK_API_KEY` / `TAVILY_API_KEY` 环境变量**已经不再读取**，`/etc/magi/magi.env`
+里留着只为兼容旧部署，可以删。检索默认走 DeepSeek 的 search（共用用户自己的模型 key），
+需要退回 Tavily 时改 `config/agents.yaml` 的 `search.provider` 并配 `TAVILY_API_KEY`。
 
 ## 4. 签证书、切 HTTPS
 

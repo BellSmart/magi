@@ -24,7 +24,8 @@ die() { echo "错误：$*" >&2; exit 1; }
 
 SRC="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 TMP=""
-cleanup() { [ -n "$TMP" ] && rm -rf "$TMP"; }
+# 注意写成 if：`[ -n ... ] && cmd` 在 TMP 为空时返回 1，会污染脚本最终退出码。
+cleanup() { if [ -n "$TMP" ]; then rm -rf "$TMP"; fi; }
 trap cleanup EXIT
 
 if [ -f "$SRC" ]; then

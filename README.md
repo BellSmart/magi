@@ -60,6 +60,25 @@ mock provider 不发任何网络请求，三台分别给出 yes / no / yes，可
 
 换服务商只要改 `config/agents.yaml` 的 `base_url`，不需要动代码。
 
+## 部署与更新
+
+单机部署：systemd + nginx + uvicorn，脚本都在 [`deploy/`](deploy/) 里，
+完整步骤与排错见 **[deploy/README.md](deploy/README.md)**。
+
+```bash
+# 首次安装（Ubuntu 22.04 / 24.04）
+sudo bash deploy/install.sh
+
+# 之后更新：源码目录或 tar.gz 都可以
+sudo bash deploy/update.sh
+sudo bash deploy/update.sh /root/magi-20260101.tar.gz
+```
+
+`update.sh` 的动作按顺序是：把数据库快照到 `/var/backups/magi/`（SQLite 用 `.backup`，
+只留最近 10 份）→ `rsync` 覆盖 `/opt/magi` → `pyproject.toml` 有变化才 `pip install -e` →
+`systemctl restart magi` → 轮询 `/healthz` 最多 30 秒，失败时打印 journal 并给出回滚命令。
+它**不动** nginx 配置、`/etc/magi/magi.env` 和数据库内容；表结构变更由应用启动时自动迁移。
+
 ## 账号管理
 
 没有管理后台，账号操作都在服务器上执行：
@@ -108,7 +127,7 @@ app/            后端（FastAPI）
   cli.py        账号管理
 config/         agent 与 provider 配置（真实 / mock 两份）
 web/            前端（React + Vite，M4 阶段接入）
-deploy/         nginx / systemd / 安装脚本（M5 阶段）
+deploy/         nginx / systemd / 安装与更新脚本
 legacy/         上游 Dash 实现，仅作参照
 docs/           设计文档
 tests/
