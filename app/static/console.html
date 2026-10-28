@@ -124,6 +124,8 @@
       /* 横向拉伸 2 倍在窄屏会顶出格子被裁掉，改成不拉伸、字号收一档 */
       .magi > .header > span { font-size: 7cqh; transform: none; }
       .magi > .response > .inner { font-size: 7cqh; padding: 1px 6px; }
+      /* 未投票时格子里是人格名（BALTHASAR • 2），8cqh 会溢出到隔壁格 */
+      .magi > .wise-man > .inner { font-size: 5.5cqh; letter-spacing: 0; }
 
       .desktop-only { display: none; }
 
