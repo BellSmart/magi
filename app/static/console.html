@@ -297,6 +297,8 @@ function setPending() {
   els.response.textContent = LABEL.info;
   els.response.style.color = VERDICT_COLOR.info;
   els.response.style.borderColor = VERDICT_COLOR.info;
+  // 外层框的边框用 currentColor，颜色要一起改，否则会留着默认的信息蓝
+  if (els.response.parentElement) els.response.parentElement.style.color = VERDICT_COLOR.info;
   els.response.classList.add('flicker');
   els.extention.textContent = 'EXTENTION:????';
   els.exmode.textContent = 'EX_MODE:OFF';
@@ -317,6 +319,7 @@ function finish(status) {
   els.response.textContent = LABEL[status] || LABEL.error;
   els.response.style.color = color;
   els.response.style.borderColor = color;
+  if (els.response.parentElement) els.response.parentElement.style.color = color;
   els.response.classList.remove('flicker');
 }
 
