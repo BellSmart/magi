@@ -113,12 +113,31 @@ openssl x509 -in /etc/letsencrypt/live/<IP>/fullchain.pem -noout -dates
 
 ## 日常运维
 
-**更新代码**
+**更新代码**（推荐用 `update.sh`：自动备份数据库、按需重装依赖、重启并自检）
 
 ```bash
-cd /root/magi-src && sudo git pull
-sudo bash deploy/install.sh        # 幂等，会保留 magi.env 与证书
+# 方式一：代码已经在服务器上（目录或 tar.gz 都行）
+sudo bash /root/magi-src/deploy/update.sh
+sudo bash /root/magi-src/deploy/update.sh /root/magi-20260101.tar.gz
+
+# 方式二：从开发机上传后执行
+tar --exclude='.venv' --exclude='data' --exclude='__pycache__' -czf magi.tar.gz -C .. magi
+scp magi.tar.gz root@<IP>:/root/
+ssh root@<IP> 'cd /root/magi-src && sudo bash deploy/update.sh /root/magi.tar.gz'
 ```
+
+`update.sh` 做的事，按顺序：
+
+1. 备份 `/var/lib/magi/magi.db` 到 `/var/backups/magi/`（只留最近 10 份）
+2. `rsync` 覆盖 `/opt/magi`（不动 `.venv`、`data/`、`.env`）
+3. `pyproject.toml` 有变化才 `pip install -e`，否则跳过
+4. `systemctl restart magi`，轮询 `/healthz` 最多 30 秒
+5. 失败时打印 journal 并提示回滚命令
+
+数据库表结构变更由应用启动时自动迁移，不需要手动执行 SQL。
+
+> 这台机器**连不上 github.com**（`api.github.com` 可以），所以 `git pull` 更新不可用，
+> 必须用上面打包上传的方式。
 
 **日志**
 

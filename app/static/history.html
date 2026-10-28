@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="ja">
 <head>
   <meta charset="utf-8">
@@ -88,9 +88,19 @@
     .sources .snip { display: block; color: #6b573a; }
 
     @media (max-width: 760px) {
+      header { flex-wrap: wrap; gap: 8px 14px; padding: 10px 12px; }
+      header .who { margin-left: 0; width: 100%; }
       .grid { grid-template-columns: 1fr; height: auto; }
       .list { max-height: 45vh; border-right: none; border-bottom: 1px solid #2a1a08; }
-      .detail { height: auto; }
+      .detail { height: auto; padding: 12px; }
+      .qtext, .run-body { font-size: 14px; line-height: 1.7; }
+      .open-console { padding: 7px 14px; }
+    }
+
+    /* 触屏没有 hover，"悬停才显示删除键"在手机上等于没有删除功能 */
+    @media (hover: none) {
+      .del { visibility: visible; }
+      .item { padding-right: 52px; }
     }
   </style>
 </head>
@@ -105,7 +115,7 @@
 
 <div class="grid">
   <section class="list" id="list"><div class="empty">読み込み中…</div></section>
-  <section class="detail" id="detail"><div class="empty">左の記録を選択してください</div></section>
+  <section class="detail" id="detail"><div class="empty">記録を選択してください</div></section>
 </div>
 
 <script>
@@ -350,7 +360,7 @@ async function removeOne(id, node) {
     detailEl.textContent = '';
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = '左の記録を選択してください';
+    empty.textContent = '記録を選択してください';
     detailEl.appendChild(empty);
   }
 
@@ -401,7 +411,7 @@ async function boot(silent) {
     detailEl.textContent = '';
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = '左の記録を選択してください';
+    empty.textContent = '記録を選択してください';
     detailEl.appendChild(empty);
     return;
   }

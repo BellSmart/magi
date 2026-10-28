@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="ja">
 <head>
   <meta charset="utf-8">
@@ -87,6 +87,81 @@
     .modal > .modal-body { grid-template-columns: max-content 1fr; row-gap: 6px; }
     .modal .value { white-space: pre-wrap; word-break: break-word; }
     .modal .key { color: #b46a00; }
+
+    /* ---- 移动端 ----------------------------------------------------------
+       三角布局靠 aspect-ratio + cqh 字号撑起来，屏幕一窄高度就只剩一半，
+       字会缩到看不清。手机上改成纵向排列：三块盾牌等宽堆叠，尺寸用 px 固定。 */
+    @media (max-width: 720px) {
+      body { margin: 8px; }
+      .system { padding: 10px; }
+
+      .magi {
+        display: flex; flex-direction: column; gap: 8px;
+        aspect-ratio: auto; container-type: normal;
+        padding: 8px;
+      }
+      .magi > .connection,
+      .magi > .header { display: none; }
+
+      .magi > .title { order: -3; font-size: 26px; letter-spacing: .1em; }
+      .magi > .system-status {
+        order: -2; display: flex; flex-wrap: wrap; gap: 4px 12px;
+      }
+      .magi > .system-status > div,
+      .magi > .system-status > div:first-child {
+        font-size: 10px; margin-left: 0; transform: none;
+      }
+
+      /* 三角裁切在纵向排列里只剩难看的缺口；这里用同等特异性的选择器压掉 */
+      .magi > .wise-man.melchior,
+      .magi > .wise-man.balthasar,
+      .magi > .wise-man.casper,
+      .magi > .wise-man.melchior > .inner,
+      .magi > .wise-man.balthasar > .inner,
+      .magi > .wise-man.casper > .inner { clip-path: none; }
+      .magi > .wise-man {
+        min-height: 56px; padding: 2px;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .magi > .wise-man > .inner { font-size: 16px; letter-spacing: .08em; }
+
+      .magi > .response {
+        order: 10; justify-self: stretch; align-self: stretch;
+        text-align: center; margin-top: 4px;
+        color: #ff8d00; border-color: #ff8d00;
+      }
+      .magi > .response > .inner {
+        font-size: 18px; display: block; white-space: normal;
+        border-color: currentColor; padding: 4px 8px;
+      }
+
+      .input-container { grid-template-columns: 1fr; row-gap: 6px; }
+      .input-container > label { margin-bottom: 0; }
+      .input-container > .editor,
+      .input-container > .editor-meta,
+      .input-container > .actions { grid-column: 1; }
+      .editor > textarea,
+      .editor > .mirror { font-size: 16px; } /* ≥16px 才不会触发 iOS 聚焦缩放 */
+      .input-container > .actions { justify-content: stretch; margin-top: 8px; }
+      .input-container > .actions button,
+      .input-container > .actions a {
+        flex: 1; text-align: center; padding: 9px 0; font-size: 14px;
+      }
+
+      .modal {
+        max-width: none; max-height: 82%;
+        left: 8px; right: 8px; top: 9%;
+      }
+      .modal > .modal-body { grid-template-columns: 1fr; row-gap: 2px; padding: 10px; }
+      .modal .key { margin-top: 8px; color: #ff8d00; }
+
+      .sources { max-height: 42vh; font-size: 13px; }
+    }
+
+    /* 横屏手机：三角布局仍然太挤，沿用纵向 */
+    @media (max-height: 460px) and (orientation: landscape) {
+      .magi { aspect-ratio: 3 / 1; }
+    }
   </style>
 </head>
 <body>

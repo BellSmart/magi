@@ -38,6 +38,13 @@
     button:hover:not(:disabled) { background: #3caee0; color: #05070a; }
     button:disabled { opacity: .5; cursor: wait; }
     #msg { min-height: 18px; margin-top: 14px; font-size: 12px; color: #a41413; }
+
+    @media (max-width: 480px), (max-height: 520px) {
+      form { width: min(94vw, 360px); padding: 22px 18px; }
+      /* 16px 以下 iOS 会在聚焦时自动放大页面，登录后回不去 */
+      input { font-size: 16px; padding: 11px 10px; }
+      button { padding: 12px; }
+    }
   </style>
 </head>
 <body>
