@@ -162,6 +162,32 @@
       .sources { max-height: 42vh; font-size: 13px; }
     }
 
+    /* 三台各自的回答：桌面三列，手机三个横列（见下方媒体查询） */
+    .answers {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px; margin-top: 12px;
+    }
+    .answers[hidden] { display: none; }
+    .answer-col {
+      display: flex; flex-direction: column; gap: 8px; min-width: 0;
+      border: 2px solid #2a1a08; background: #0a0602; padding: 10px;
+      font-family: 'Lucida Console', monospace; color: #c8b28a; cursor: pointer;
+    }
+    .answer-col:hover { border-color: #8a4a08; }
+    .answer-head { display: flex; align-items: baseline; gap: 8px; }
+    .answer-name { color: #ff8d00; font-size: 13px; letter-spacing: .08em; }
+    .answer-status { margin-left: auto; font-size: 12px; font-weight: bold; }
+    .answer-text {
+      white-space: pre-wrap; overflow-wrap: anywhere;
+      font-size: 13px; line-height: 1.7; max-height: 46vh; overflow: auto;
+    }
+    .answer-meta { font-size: 11px; color: #7a5a2a; }
+
+    @media (max-width: 720px) {
+      .answers { grid-template-columns: 1fr; gap: 8px; margin-top: 8px; }
+      .answer-col .answer-text { max-height: none; }
+    }
+
     /* 待机状态（情 報）没有 JS 上色，默认给一个信息蓝，否则黑底黑字看不见 */
     .magi > .response { color: #3caee0; }
   </style>
@@ -195,6 +221,8 @@
     <div class="response"><div class="inner" id="response-inner">情 報</div></div>
     <div class="title">MAGI</div>
   </div>
+
+  <div class="answers" id="answers" hidden></div>
 
   <div class="input-container">
     <label for="query">question: </label>
@@ -304,6 +332,7 @@ function setPending() {
   els.exmode.textContent = 'EX_MODE:OFF';
   els.priority.textContent = 'PRIORITY:AAA';
   renderSources([]);
+  renderAnswers();
 }
 
 function updatePriority() {
@@ -347,6 +376,52 @@ function renderSources(results) {
   });
 }
 
+// 三台的回答：决议之后直接摊在下面，点开还能看详情弹窗。
+function renderAnswers() {
+  const host = document.getElementById('answers');
+  const ready = AGENTS.filter((agent) => state.answers[agent]);
+  if (!ready.length) {
+    host.hidden = true;
+    host.textContent = '';
+    return;
+  }
+
+  host.hidden = false;
+  host.textContent = '';
+  ready.forEach((agentId) => {
+    const run = state.answers[agentId];
+    const col = document.createElement('article');
+    col.className = 'answer-col';
+    col.addEventListener('click', () => openAgentModal(agentId));
+
+    const head = document.createElement('div');
+    head.className = 'answer-head';
+    const name = document.createElement('div');
+    name.className = 'answer-name';
+    name.textContent = run.display || agentId.toUpperCase();
+    const status = document.createElement('div');
+    status.className = 'answer-status';
+    status.textContent = LABEL[run.status] || run.status || '待 機';
+    status.style.color = VERDICT_COLOR[run.status] || '#6b573a';
+    head.append(name, status);
+
+    const text = document.createElement('div');
+    text.className = 'answer-text';
+    text.textContent = run.answer || run.error || '—';
+
+    const meta = document.createElement('div');
+    meta.className = 'answer-meta';
+    const bits = [];
+    if (run.model) bits.push(run.model);
+    if (run.latency_ms != null) bits.push(`${run.latency_ms} ms`);
+    if (run.conditions) bits.push(`条件: ${run.conditions}`);
+    meta.textContent = bits.join(' ・ ');
+
+    col.append(head, text, meta);
+    host.appendChild(col);
+  });
+}
+
 function subscribe(questionId) {
   closeSource();
   const source = new EventSource(`/api/questions/${questionId}/stream`);
@@ -368,6 +443,7 @@ function subscribe(questionId) {
     state.answers[data.agent] = data;
     setVote(data.agent, data.status);
     updatePriority();
+    renderAnswers();
   });
 
   source.addEventListener('verdict', (event) => {
@@ -612,10 +688,12 @@ async function loadRecord(id) {
       error: run.error,
       latency_ms: run.latency_ms,
       model: run.model,
+      display: run.display,
     };
     setVote(run.agent, run.status);
   });
   updatePriority();
+  renderAnswers();
 
   finish(data.status === 'processing' ? 'info' : data.status);
   els.extention.textContent = 'EXTENTION:' + (data.form === 'none' ? '3023' : '7312');

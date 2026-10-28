@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.agents.catalog import ModelListError, cached_models, fetch_models
 from app.agents.config import get_agents_config, model_catalog
 from app.agents.aggregator import POLICY_LABELS, is_valid_policy
 from app.agents.answer import (
@@ -59,19 +60,51 @@ class SearchPayload(BaseModel):
 
 
 def _catalog_with_availability(config, creds: dict[str, str]):  # noqa: ANN001, ANN202
-    """可选模型 = 用户自己配了 key 的 provider。"""
-    return [
-        {
-            "provider": option.provider,
-            "provider_label": config.provider(option.provider).label or option.provider,
-            "model": option.model,
-            "label": option.label or option.model,
-            "available": config.provider(option.provider).is_mock
-            or option.provider in creds,
-        }
-        for option in model_catalog(config)
-        if option.provider in config.providers
-    ]
+    """可选模型 = 用户自己配了 key 的 provider。
+
+    先列 YAML 里的常用项，再把「用这把 key 真拉回来」的模型追加在后面；
+    拉取结果有 10 分钟缓存，所以 GET 不会每次都打网络。
+    """
+    options: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+
+    for option in model_catalog(config):
+        if option.provider not in config.providers:
+            continue
+        seen.add((option.provider, option.model))
+        options.append(
+            {
+                "provider": option.provider,
+                "provider_label": config.provider(option.provider).label
+                or option.provider,
+                "model": option.model,
+                "label": option.label or option.model,
+                "available": config.provider(option.provider).is_mock
+                or option.provider in creds,
+                "dynamic": False,
+            }
+        )
+
+    for name, provider in config.providers.items():
+        api_key = creds.get(name)
+        if not api_key:
+            continue
+        for model in cached_models(provider, api_key) or []:
+            if (name, model) in seen:
+                continue
+            seen.add((name, model))
+            options.append(
+                {
+                    "provider": name,
+                    "provider_label": provider.label or name,
+                    "model": model,
+                    "label": model,
+                    "available": True,
+                    "dynamic": True,
+                }
+            )
+
+    return options
 
 
 def _overrides(db: Session, user_id: int) -> dict[str, UserAgentSetting]:
@@ -359,7 +392,54 @@ def put_provider(
             detail={"code": "invalid_key", "message": "API キーが短すぎます"},
         )
     set_credential(db, user.id, payload.provider, api_key)
-    return _provider_payload(db, user)
+
+    result = _provider_payload(db, user)
+    # 存完就拿这把 key 真打一次 /models：既当连通性测试，也把可用模型带回来。
+    if payload.provider in config.providers:
+        try:
+            models = fetch_models(config.provider(payload.provider), api_key)
+            result["test"] = {
+                "ok": True,
+                "count": len(models),
+                "models": models[:60],
+            }
+        except ModelListError as exc:
+            result["test"] = {"ok": False, "message": str(exc)}
+    return result
+
+
+@router.get("/providers/{provider}/models")
+def provider_models(
+    provider: str,
+    request: Request,
+    force: bool = False,
+    db: Session = Depends(get_db),
+) -> dict:
+    """用已保存的 key 拉一次模型列表；force=true 时跳过缓存。"""
+    user = cast(User, request.state.user)
+    config = get_agents_config()
+    if provider not in config.providers:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "unknown_provider", "message": "未知的服务商"},
+        )
+
+    api_key = user_credentials(db, user.id).get(provider)
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "missing_key", "message": "先に API キーを登録してください"},
+        )
+
+    try:
+        models = fetch_models(config.provider(provider), api_key, force=force)
+    except ModelListError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "models_unavailable", "message": str(exc)},
+        ) from exc
+
+    return {"provider": provider, "models": models, "count": len(models)}
 
 
 @router.delete("/providers/{provider}")

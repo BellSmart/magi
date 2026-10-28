@@ -116,6 +116,7 @@
              placeholder="API キーを貼り付け" autocomplete="off" spellcheck="false">
       <div class="key-actions">
         <button id="provider-save" class="primary" type="button">保 存</button>
+        <button id="provider-refresh" class="secondary" type="button" hidden>モデル再取得</button>
         <button id="provider-delete" class="secondary" type="button" hidden>削 除</button>
       </div>
     </div>
@@ -273,6 +274,8 @@ function syncProviderRow() {
   }
   input.placeholder = provider.configured ? '新しいキーで上書き' : 'API キーを貼り付け';
   del.hidden = !provider.configured;
+  const refresh = document.getElementById('provider-refresh');
+  if (refresh) refresh.hidden = !provider.configured;
   const models = Array.isArray(provider.models) ? provider.models.length : 0;
   hint.textContent = `${provider.base_url} ・ モデル ${models} 件${provider.configured ? ' ・ 登録済み' : ''}`;
 }
@@ -302,9 +305,36 @@ async function saveKey() {
     }
     providerState.selected = name;
     input.value = '';
-    renderProviders(await response.json());
-    setMsg('msg-providers', '保存しました。このサービスのモデルが選べるようになりました。');
+    const data = await response.json();
+    renderProviders(data);
+    if (data.test && data.test.ok) {
+      setMsg('msg-providers', `接続 OK ・ モデル ${data.test.count} 件を取得しました。`);
+    } else if (data.test && data.test.ok === false) {
+      setMsg('msg-providers', `キーは保存しましたが接続テストに失敗：${data.test.message}`, true);
+    } else {
+      setMsg('msg-providers', '保存しました。');
+    }
     await refreshAgents();
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function refreshModels() {
+  const name = document.getElementById('provider-select').value;
+  if (!name) return;
+  const button = document.getElementById('provider-refresh');
+  button.disabled = true;
+  setMsg('msg-providers', '');
+  try {
+    const response = await fetch(`/api/settings/providers/${name}/models?force=true`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setMsg('msg-providers', (data.error && data.error.message) || '取得に失敗しました', true);
+      return;
+    }
+    await refreshAgents();
+    setMsg('msg-providers', `モデル ${data.count} 件を取得しました。`);
   } finally {
     button.disabled = false;
   }
@@ -616,6 +646,7 @@ document.getElementById('save-voting').addEventListener('click', saveVoting);
 
 document.getElementById('provider-select').addEventListener('change', syncProviderRow);
 document.getElementById('provider-save').addEventListener('click', saveKey);
+document.getElementById('provider-refresh').addEventListener('click', refreshModels);
 document.getElementById('provider-delete').addEventListener('click', deleteKey);
 
 document.getElementById('search-select').addEventListener('change', (event) => {
