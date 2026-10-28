@@ -94,11 +94,18 @@ class VotingConfig(BaseModel):
 
 
 class SearchConfig(BaseModel):
+    # tavily | deepseek（deepseek 走自研搜索引擎，和模型共用同一个 key）
     provider: str = "tavily"
     api_key: str = ""
-    shared_max_results: int = 8
-    per_agent_max_results: int = 5
-    max_calls_per_question: int = 6
+    endpoint: str = ""
+    timeout_s: float = 20.0
+    # 共享基线跑几路查询（事实 + 反方），每路一条
+    shared_queries: int = 2
+    # 每个人格自己再跑几路（同一视角下的正反）
+    per_agent_queries: int = 2
+    shared_max_results: int = 10
+    per_agent_max_results: int = 6
+    max_calls_per_question: int = 12
     cache_ttl_seconds: int = 21600
 
     @property

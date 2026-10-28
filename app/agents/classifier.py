@@ -100,40 +100,60 @@ FALLBACK_PROMPT = (
 )
 
 REWRITE_PROMPT = """
-Turn the user's proposition into ONE short web search query.
+Write {count} short web search queries for the proposition below.
 
-Angle for this council member: {angle}
+Perspective: {angle}
+
+Cover different sides on purpose — one query for the strongest case FOR this
+perspective, one for the strongest evidence AGAINST it, and further facets if asked.
 
 Rules:
-- At most 20 words (or 12 Chinese characters).
-- Keep the original topic. Change only the angle.
-- Write it in the same language as the user's input.
-- Output the query only: no quotes, no explanation, no preamble.
+- Write the queries in ENGLISH, even when the proposition is in another language.
+  Keep proper nouns (names, places, products) as they are.
+- At most 15 words each.
+- One query per line. No numbering, no quotes, no explanation.
 """.strip()
+
+_LIST_PREFIX = re.compile(r"^\s*(?:[-*•]|\d+[.)、])\s*")
+
+
+def parse_query_list(text: str | None, fallback: list[str], limit: int) -> list[str]:
+    """把模型返回的多行查询清洗成列表；空则用 fallback。"""
+    cleaned: list[str] = []
+    for raw in (text or "").splitlines():
+        line = _LIST_PREFIX.sub("", raw.strip())
+        line = line.strip("\"'`“”‘’《》 ").strip()
+        line = re.sub(r"^(?:query|search)\s*\d*\s*[:：]\s*", "", line, flags=re.IGNORECASE)
+        if len(line) < 2:
+            continue
+        if line not in cleaned:
+            cleaned.append(line[:160])
+        if len(cleaned) >= limit:
+            break
+    return cleaned or fallback[:limit]
 
 
 def parse_rewritten_query(text: str | None, fallback: str) -> str:
-    """把模型返回的查询清洗成一行；不合格就用原文兜底。"""
-    cleaned = (text or "").strip()
-    if not cleaned:
-        return fallback
-    first = cleaned.splitlines()[0].strip()
-    first = first.strip("\"'`“”‘’《》 ").strip()
-    first = re.sub(r"^(?:query|search)\s*[:：]\s*", "", first, flags=re.IGNORECASE)
-    if len(first) < 2:
-        return fallback
-    return first[:120]
+    return parse_query_list(text, [fallback], 1)[0]
 
 
-async def rewrite_search_query(
-    cfg: AgentsConfig, agent, question: str  # noqa: ANN001
-) -> str:
-    """按该人格的角度，把命题改写成一句短查询。
+async def rewrite_queries(
+    cfg: AgentsConfig,
+    question: str,
+    *,
+    angle: str,
+    count: int,
+) -> list[str]:
+    """按给定视角，把命题改写成若干条英文查询。
 
-    直接拼接关键词会让 Tavily 抓住关键词而不是议题——实测三台换来了
-    "结果完全不重叠"却大量离题。这里用一次很便宜的调用先把角度翻译成查询。
+    为什么必须改写：把关键词糊在命题后面会让检索抓住关键词而不是议题，
+    实测三台换来"结果完全不重叠"却大量离题。
+    为什么用英文：英文查询在通用搜索引擎上的召回质量明显更稳定。
     """
-    fallback = " ".join(question.split())[:80]
+    fallback = [" ".join(question.split())[:120]]
+    if count <= 0:
+        return fallback
+
     provider = cfg.provider(cfg.classifier.provider)
     extra = {"thinking": {"type": "disabled"}} if provider.thinking_switch else None
 
@@ -145,21 +165,21 @@ async def rewrite_search_query(
                 messages=[
                     {
                         "role": "system",
-                        "content": REWRITE_PROMPT.format(angle=agent.search_angle),
+                        "content": REWRITE_PROMPT.format(angle=angle, count=count),
                     },
                     {"role": "user", "content": question[:1500]},
                 ],
                 temperature=0.0,
-                max_tokens=64,
+                max_tokens=80 * max(count, 1),
                 extra=extra,
-                meta={"role": "rewrite_query", "agent": agent.id},
+                meta={"role": "rewrite_query", "agent": angle[:24]},
             ),
-            timeout=20,
+            timeout=25,
         )
     except Exception:  # noqa: BLE001 - 改写失败不该拖垮检索
         return fallback
 
-    return parse_rewritten_query(completion.content, fallback)
+    return parse_query_list(completion.content, fallback, count)
 
 
 async def classify_answer(

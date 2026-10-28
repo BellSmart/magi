@@ -48,6 +48,7 @@ class TavilySearch:
         *,
         max_results: int,
         include_domains: list[str] | None = None,
+        ori_question: str | None = None,  # noqa: ARG002 - 与 DeepSeek 后端保持同一接口
     ) -> list[SearchResult]:
         domains = include_domains or []
         key = self._cache_key(query, max_results, self._depth, domains)

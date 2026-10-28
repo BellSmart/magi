@@ -54,12 +54,19 @@ voting:
   conditional_policy: weak_yes
 
 search:
-  provider: tavily
-  api_key: ${ENV:TAVILY_API_KEY}
-  shared_max_results: 8
-  per_agent_max_results: 5
-  # 单次提问的全局检索预算（共享 1 次 + 各 agent 追加合计）
-  max_calls_per_question: 6
+  # deepseek：用自研搜索引擎，与模型共用同一个 key，按次计费（5 元/1000 次），
+  # QPS 100，适合多轮检索。tavily 仍然保留，改这一行即可切回。
+  provider: deepseek
+  api_key: ${ENV:DEEPSEEK_API_KEY}
+  endpoint: https://api.deepseek.com/v1/tools/search
+  timeout_s: 20
+  # 共享基线跑几路（事实 + 反方），每个人格再各跑几路
+  shared_queries: 2
+  per_agent_queries: 2
+  shared_max_results: 10
+  per_agent_max_results: 6
+  # 单次提问的检索预算上限（2 共享 + 3 台 × 2 = 8 次）
+  max_calls_per_question: 12
   cache_ttl_seconds: 21600
 
 # 用户可在「設 定」页为每个人格单独选择模型，但只能从这个白名单里挑。
@@ -73,13 +80,14 @@ models:
   - provider: deepseek
     model: deepseek-v4-pro
     label: DeepSeek V4 Pro（强、贵）
-  # 配好对应 key 后可解注以下两项
-  # - provider: kimi
-  #   model: kimi-k3.1-pro-highspeed
-  #   label: Kimi K3.1 Pro Highspeed
-  # - provider: qwen
-  #   model: qwen3.8-max
-  #   label: 千问 3.8 Max
+  # 下面两项在有对应 key 之前，界面上会显示为"未設定"且不可选。
+  # 填好 MOONSHOT_API_KEY / DASHSCOPE_API_KEY 之后自动可选，无需改代码。
+  - provider: kimi
+    model: kimi-k3.1-pro-highspeed
+    label: Kimi K3.1 Pro Highspeed
+  - provider: qwen
+    model: qwen3.8-max
+    label: 千问 3.8 Max
 
 agents:
   # 人格必须互斥到"判准"这一层，而不只是口吻。

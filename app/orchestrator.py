@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from typing import Any
 
 from sqlalchemy import select
 
 from app.agents.aggregator import REASON_TEXT, aggregate
-from app.agents.classifier import VOTABLE_FORMS, classify_form, rewrite_search_query
+from app.agents.classifier import VOTABLE_FORMS, classify_form, rewrite_queries
 from app.agents.config import AgentConfig, get_agents_config, model_catalog
 from app.agents.runner import AgentOutcome, run_agent
 from app.db import session_scope
@@ -31,7 +32,7 @@ from app.models import (
     utcnow,
 )
 from app.search.base import SearchError
-from app.search.tavily import build_provider
+from app.search.factory import build_provider
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,64 @@ _RUNNING: set[asyncio.Task[None]] = set()
 _search_provider = None
 _search_signature: tuple[str, int] | None = None
 SEARCH_TIMEOUT_SECONDS = 25.0
+
+# 送进 prompt 的来源上限。查得多不等于全塞进去：
+# 14 条 × 400 字会把 prompt 撑到 3000+ token，边际收益很低。
+PROMPT_SOURCE_CAP = 11
+
+# 合并时给"本台自己的检索结果"预留的条数
+SOURCE_EXTRA_SLOTS = 4
+
+# 共享检索的视角：既要事实，也要反方，避免三台都只看到支持性材料。
+SHARED_ANGLE = (
+    "a neutral factual overview: what is actually being claimed, what the "
+    "mainstream evidence says, and what the strongest opposing view is"
+)
+
+
+def _norm_title(title: str | None) -> str:
+    """标题归一：同一篇文章在不同镜像站的标题只差后缀，按前缀去重。"""
+    return re.sub(r"[\W_]+", "", (title or "").lower())[:40]
+
+
+def _is_duplicate_title(key: str, seen: set[str]) -> bool:
+    """互为前缀即视为同一篇（镜像站常给标题加" - 版权归…"之类的尾巴）。"""
+    if len(key) < 8:
+        return False
+    return any(key.startswith(s) or s.startswith(key) for s in seen)
+
+
+def _dedupe(items: list, seen_urls: set[str], seen_titles: set[str]) -> list:
+    kept = []
+    for item in items:
+        url = getattr(item, "url", None) or item.get("url")
+        title = getattr(item, "title", None) or item.get("title")
+        tkey = _norm_title(title)
+        if url in seen_urls or _is_duplicate_title(tkey, seen_titles):
+            continue
+        seen_urls.add(url)
+        if tkey:
+            seen_titles.add(tkey)
+        kept.append(item)
+    return kept
+
+
+def _merge_sources(
+    base: list[dict[str, Any]],
+    extra: list[dict[str, Any]],
+    cap: int = PROMPT_SOURCE_CAP,
+    extra_slots: int = SOURCE_EXTRA_SLOTS,
+) -> list[dict[str, Any]]:
+    """共享基线 + 本台新增。
+
+    必须先给 extra 留位置：基线一旦占满 cap，截断后本台自己的检索结果
+    会被整体挤掉，三台看到的又变成同一份（这个坑踩过一次）。
+    """
+    seen_urls = {item.get("url") for item in base}
+    seen_titles = {_norm_title(item.get("title")) for item in base}
+    picked_extra = _dedupe(extra, seen_urls, seen_titles)[:extra_slots]
+    head = base[: max(0, cap - len(picked_extra))]
+    return head, picked_extra
 
 
 def emit(question_id: str, event_type: str, payload: dict[str, Any] | None = None) -> None:
@@ -57,7 +116,12 @@ def _get_search_provider(cfg):  # noqa: ANN001, ANN202
     global _search_provider, _search_signature
     if not cfg.search.enabled:
         return None
-    signature = (cfg.search.api_key, cfg.search.cache_ttl_seconds)
+    signature = (
+        cfg.search.provider,
+        cfg.search.api_key,
+        cfg.search.endpoint,
+        cfg.search.cache_ttl_seconds,
+    )
     if _search_provider is None or _search_signature != signature:
         _search_provider = build_provider(cfg.search)
         _search_signature = signature
@@ -77,13 +141,14 @@ def _persist_search(
     latency_ms: int,
     credits: float,
     scope: str = "shared",
+    provider_name: str = "unknown",
 ) -> None:
     with session_scope() as db:
         call = SearchCall(
             question_id=question_id,
             scope=scope,
             query=query,
-            provider="tavily",
+            provider=provider_name,
             hit_count=len(results),
             latency_ms=latency_ms,
             credits=credits,
@@ -103,39 +168,76 @@ def _persist_search(
             )
 
 
+async def _run_queries(
+    cfg,  # noqa: ANN001
+    question_id: str,
+    queries: list[str],
+    *,
+    max_results: int,
+    scope: str,
+    include_domains: list[str] | None = None,
+    ori_question: str | None = None,
+) -> list:
+    """并发跑一批查询，逐条落库，返回按 URL 去重后的结果。"""
+    provider = _get_search_provider(cfg)
+    if provider is None:
+        return []
+
+    async def one(query: str):
+        started = time.perf_counter()
+        try:
+            found = await asyncio.wait_for(
+                provider.search(
+                    query,
+                    max_results=max_results,
+                    include_domains=include_domains,
+                    ori_question=ori_question,
+                ),
+                timeout=SEARCH_TIMEOUT_SECONDS,
+            )
+        except (asyncio.TimeoutError, SearchError) as exc:
+            logger.warning("%s 的检索失败（%s）：%s", scope, query[:40], exc)
+            return None
+        latency = int((time.perf_counter() - started) * 1000)
+        _persist_search(
+            question_id, query, found, latency,
+            getattr(provider, "last_credits", 0.0), scope=scope,
+            provider_name=getattr(provider, "name", cfg.search.provider),
+        )
+        return found
+
+    batches = await asyncio.gather(*(one(q) for q in queries))
+
+    seen_urls: set[str] = set()
+    seen_titles: set[str] = set()
+    merged: list = []
+    for batch in batches:
+        merged.extend(_dedupe(batch or [], seen_urls, seen_titles))
+    return merged
+
+
 async def _shared_search(
     cfg, question_id: str, text: str  # noqa: ANN001
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """共享基线：三台共同的事实托底。
+
+    跑多路查询（事实 + 反方），确保不只是搜到支持性材料。
+    即使某台自己的检索跑偏，它也还有这份基线可依。
+    """
     provider = _get_search_provider(cfg)
     if provider is None:
         return [], {"enabled": False, "count": 0, "results": []}
 
-    # 长文本不能整段丢给检索：整篇文章当 query 只会召回噪声。
-    # 取首段并压平空白，足够表达议题。
-    query = " ".join(text.split())[:300]
+    queries = await rewrite_queries(
+        cfg, text, angle=SHARED_ANGLE, count=cfg.search.shared_queries
+    )
+    results = await _run_queries(
+        cfg, question_id, queries,
+        max_results=cfg.search.shared_max_results,
+        scope="shared",
+        ori_question=" ".join(text.split())[:128],
+    )
 
-    started = time.perf_counter()
-    try:
-        results = await asyncio.wait_for(
-            provider.search(query, max_results=cfg.search.shared_max_results),
-            timeout=SEARCH_TIMEOUT_SECONDS,
-        )
-    except (asyncio.TimeoutError, SearchError) as exc:
-        latency = int((time.perf_counter() - started) * 1000)
-        logger.warning("共享检索失败：%s", exc)
-        return [], {
-            "enabled": True,
-            "count": 0,
-            "results": [],
-            "query": query,
-            "error": str(exc)[:200],
-            "latency_ms": latency,
-        }
-
-    latency = int((time.perf_counter() - started) * 1000)
-    _persist_search(question_id, query, results, latency, getattr(provider, "last_credits", 0.0))
-
-    # 送给模型的片段要截断；推给前端的内容同样只带摘要与链接。
     for_model = [
         {
             "title": item.title,
@@ -147,57 +249,41 @@ async def _shared_search(
     ]
     return for_model, {
         "enabled": True,
-        "count": len(results),
-        "query": query,
+        "count": len(for_model),
+        "queries": queries,
         "results": [
-            {
-                "title": item["title"],
-                "url": item["url"],
-                "snippet": item["snippet"][:280],
-            }
+            {"title": item["title"], "url": item["url"], "snippet": item["snippet"][:280]}
             for item in for_model
         ],
-        "latency_ms": latency,
     }
 
 
 async def _agent_search(
     cfg, question_id: str, text: str, agent  # noqa: ANN001
-) -> tuple[str, list[dict[str, Any]]]:
+) -> tuple[list[str], list[dict[str, Any]]]:
     """该人格自己的检索。
 
     分歧如果只来自"对同一份材料的权重不同"，那是推理风格的差异；
     让三台拿到的材料本身就有偏向，才会出现"你们看的根本不是同一批证据"。
 
-    查询不是把关键词糊在命题后面，而是先按该人格的角度改写成一个短查询：
-    直接拼接关键词会让检索抓住关键词而不是议题，召回大量离题结果。
+    查询先按该人格的视角改写成英文短句（正反各一），而不是把关键词
+    糊在命题后面——后者会让检索抓住关键词而不是议题。
     """
     provider = _get_search_provider(cfg)
     if provider is None or not agent.search_angle:
-        return "", []
+        return [], []
 
-    query = await rewrite_search_query(cfg, agent, text)
-
-    started = time.perf_counter()
-    try:
-        results = await asyncio.wait_for(
-            provider.search(
-                query,
-                max_results=cfg.search.per_agent_max_results,
-                include_domains=agent.search_domains or None,
-            ),
-            timeout=SEARCH_TIMEOUT_SECONDS,
-        )
-    except (asyncio.TimeoutError, SearchError) as exc:
-        logger.warning("%s 的检索失败：%s", agent.id, exc)
-        return query, []
-
-    latency = int((time.perf_counter() - started) * 1000)
-    _persist_search(
-        question_id, query, results, latency,
-        getattr(provider, "last_credits", 0.0), scope=agent.id,
+    queries = await rewrite_queries(
+        cfg, text, angle=agent.search_angle, count=cfg.search.per_agent_queries
     )
-    return query, [
+    results = await _run_queries(
+        cfg, question_id, queries,
+        max_results=cfg.search.per_agent_max_results,
+        scope=agent.id,
+        include_domains=agent.search_domains or None,
+        ori_question=" ".join(text.split())[:128],
+    )
+    return queries, [
         {
             "title": item.title,
             "url": item.url,
@@ -337,8 +423,8 @@ async def run_question(question_id: str) -> None:
     sources, search_event = await _shared_search(cfg, question_id, text)
     emit(question_id, "search.shared", search_event)
 
-    # 各自检索：在基线上再按人格偏置各搜一次，让三台拿到的材料也不完全相同。
-    # 失败或为空时回落到共享结果，不会因此让某台失去依据。
+    # 各自检索：在共享基线上再按人格视角追加，让三台的材料既不完全相同、
+    # 又都有人兜底。某一台的查询跑偏时，它至少还有基线可依。
     agent_sources: dict[str, list[dict[str, Any]]] = {}
     if cfg.search.enabled and any(agent.search_angle for agent in agents):
         per_agent = await asyncio.gather(
@@ -346,20 +432,24 @@ async def run_question(question_id: str) -> None:
             return_exceptions=True,
         )
         for agent, result in zip(agents, per_agent):
-            if isinstance(result, Exception) or not result:
+            if isinstance(result, Exception):
                 continue
-            query, found = result
-            if not found:
-                continue
-            agent_sources[agent.id] = found
+            queries, found = result
+            head, own = _merge_sources(sources, found)
+            merged = head + own
+            if found:
+                agent_sources[agent.id] = merged
             emit(
                 question_id,
                 "search.agent",
                 {
                     "agent": agent.id,
-                    "query": query,
-                    "count": len(found),
-                    "results": [{"title": r["title"], "url": r["url"]} for r in found],
+                    "queries": queries,
+                    "count": len(merged),
+                    "added": len(found),
+                    "results": [
+                        {"title": r["title"], "url": r["url"]} for r in merged
+                    ],
                 },
             )
 
